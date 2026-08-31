@@ -20,6 +20,7 @@ from .registry import CADENCE_HOURS, Source
 
 HEALTH_COLUMNS = [
     "source_id",
+    "first_success_at",  # coverage start — with last_success_at, the series' date range
     "last_success_at",
     "last_attempt_at",
     "consecutive_failures",
@@ -43,6 +44,7 @@ def compute_health(root: Path | str, sources: list[Source], now: datetime | None
     now_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     out: list[dict] = []
     for source in sources:
+        first_success = ""
         last_success = ""
         last_attempt = ""
         consecutive = 0
@@ -54,6 +56,7 @@ def compute_health(root: Path | str, sources: list[Source], now: datetime | None
                 continue
             last_attempt = row["fetched_at"]
             if outcome in manifest.SUCCESS_OUTCOMES:
+                first_success = first_success or row["fetched_at"]
                 last_success = row["fetched_at"]
                 consecutive = 0
             elif outcome in manifest.FAILURE_OUTCOMES:
@@ -67,6 +70,7 @@ def compute_health(root: Path | str, sources: list[Source], now: datetime | None
         out.append(
             {
                 "source_id": source.source_id,
+                "first_success_at": first_success,
                 "last_success_at": last_success,
                 "last_attempt_at": last_attempt,
                 "consecutive_failures": consecutive,

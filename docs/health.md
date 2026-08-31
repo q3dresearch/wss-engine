@@ -9,9 +9,14 @@ stream of alerts.
 `health/health.csv`, worst first:
 
 ```
-source_id, last_success_at, last_attempt_at, consecutive_failures,
-expected_interval_h, staleness_h, gate_fail_rate_28d, status
+source_id, first_success_at, last_success_at, last_attempt_at,
+consecutive_failures, expected_interval_h, staleness_h,
+gate_fail_rate_28d, status
 ```
+
+`first_success_at` → `last_success_at` is each series' coverage range — the
+answer to "from when to when does this data exist", kept machine-readable
+for every source including retired ones.
 
 - `consecutive_failures` — trailing `error`/`quarantined` rows since the last
   success; `skipped` (robots) counts as neither.

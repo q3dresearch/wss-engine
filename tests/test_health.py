@@ -51,6 +51,7 @@ def test_auto_disable_after_five_consecutive_failures(tmp_path):
     row = health_csv(tmp_path)["fixture.demo.flaky"]
     assert row["consecutive_failures"] == "5"
     assert row["status"] == "auto_disabled"
+    assert row["first_success_at"] == "2026-08-20T22:10:03Z"  # coverage range start
     assert row["last_success_at"] == "2026-08-20T22:10:03Z"
     assert row["expected_interval_h"] == "24"
 
