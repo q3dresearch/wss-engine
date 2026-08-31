@@ -1,14 +1,23 @@
-# snapshotter
+# wss — web snapshots
 
-Registry-driven capture fleet. Archive web responses **verbatim**, keep an
-append-only manifest as the provenance record, and derive point-in-time
-observation tables from the archive — never from the live web.
+The engine behind `wss-*` data repos: **scheduled GitHub Actions that scrape
+or parse any observable web page or API, every day, forever.**
 
-The engine holds **no data, ever**. A *domain repo* holds a registry of
-sources, runs this CLI from a handful of scheduled GitHub Actions workflows,
-and commits what comes back. The design target is 1,000+ concurrent
-collections managed by one person, so the binding constraint is human
-attention — every design decision serves that.
+It archives responses **verbatim**, keeps an append-only manifest as the
+provenance record, and derives point-in-time observation tables from that
+archive — never from the live web. ("Snapshots" as in captured bytes, not
+screenshots: HTML, JSON, CSV, whatever the page returns.)
+
+The engine holds **no data, ever**. A *domain repo* (`wss-hugging-face`,
+`wss-arxiv`, …) holds a registry of sources, runs this CLI from a handful of
+scheduled workflows, and commits what comes back. The design target is 1,000+
+concurrent collections managed by one person, so the binding constraint is
+human attention — every design decision serves that.
+
+```bash
+pip install "wss @ git+https://github.com/<owner>/wss-engine.git@v0.3.0"
+wss init ../wss-yoursite --owner <owner>    # a new data repo, ready to run
+```
 
 ## The rule everything hangs on
 
@@ -26,21 +35,21 @@ wrong.
 ## Install
 
 ```
-pip install "snapshotter @ git+https://github.com/neldivad/snapshotter.git@v0.1.0"
+pip install "wss @ git+https://github.com/neldivad/wss-engine.git@v0.3.0"
 # object-storage backend (Cloudflare R2 / S3):
-pip install "snapshotter[object] @ git+https://github.com/neldivad/snapshotter.git@v0.1.0"
+pip install "wss[object] @ git+https://github.com/neldivad/wss-engine.git@v0.3.0"
 ```
 
 ## CLI — this is the whole interface
 
 ```
-snapshotter init ../wss-arxiv --owner me      # scaffold a new domain repo
-snapshotter validate                          # registry schema check; CI gate
-snapshotter plan --cadence daily --shards 20  # JSON shard array for the Actions matrix
-snapshotter capture --cadence daily --shard 3/20
-snapshotter health                            # rebuild health table, apply auto-disable
-snapshotter derive --since 2026-08            # raw → observation tables
-snapshotter doctor <source_id>                # dry-run one source, print raw response
+wss init ../wss-arxiv --owner me      # scaffold a new domain repo
+wss validate                          # registry schema check; CI gate
+wss plan --cadence daily --shards 20  # JSON shard array for the Actions matrix
+wss capture --cadence daily --shard 3/20
+wss health                            # rebuild health table, apply auto-disable
+wss derive --since 2026-08            # raw → observation tables
+wss doctor <source_id>                # dry-run one source, print raw response
 ```
 
 All commands take `--root` (default: current directory) pointing at the data
@@ -53,7 +62,7 @@ root — the domain repo checkout.
    skips the file write, never the observation.
 3. Failed gate → quarantine; bad responses never enter the archive.
 4. Failures are loud: non-zero exit, red build.
-5. Identifiable user-agent (`SNAPSHOTTER_CONTACT`), robots.txt honoured,
+5. Identifiable user-agent (`WSS_CONTACT`), robots.txt honoured,
    per-host delay, 3 retries with exponential backoff.
 
 Details: [docs/capture.md](docs/capture.md).
@@ -61,7 +70,7 @@ Details: [docs/capture.md](docs/capture.md).
 ## Layout
 
 ```
-snapshotter/
+wss/
 ├── registry.py    load, validate, select active, deterministic sharding
 ├── capture.py     fetch → gate → hash → dedupe → write → manifest; doctor
 ├── gates.py       validation rules
@@ -82,7 +91,7 @@ Docs: [new domain repo](docs/new-domain.md) · [registry](docs/registry.md) ·
 
 ## Starting a new domain repo
 
-`snapshotter init <dir> --owner <gh-owner>` writes a complete, immediately
+`wss init <dir> --owner <gh-owner>` writes a complete, immediately
 valid domain repo — workflows, licences, `.gitattributes` (before any CSV
 exists), an example registry entry and parser. **Never fork an existing
 domain repo**; forks inherit the wrong parsers and drift from the template.

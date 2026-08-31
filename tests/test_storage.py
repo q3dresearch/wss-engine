@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from snapshotter import storage
-from snapshotter.registry import Endpoint, Source
+from wss import storage
+from wss.registry import Endpoint, Source
 
 TS = datetime(2026, 8, 31, 22, 10, 3, tzinfo=timezone.utc)
 SHA = "deadbeefcafe" + "0" * 52
@@ -82,7 +82,7 @@ def _source(backend: str) -> Source:
 
 
 def test_store_for_object_requires_bucket(tmp_path, monkeypatch):
-    monkeypatch.delenv("SNAPSHOTTER_OBJECT_BUCKET", raising=False)
+    monkeypatch.delenv("WSS_OBJECT_BUCKET", raising=False)
     assert isinstance(storage.store_for(_source("git"), tmp_path), storage.LocalGitStore)
-    with pytest.raises(RuntimeError, match="SNAPSHOTTER_OBJECT_BUCKET"):
+    with pytest.raises(RuntimeError, match="WSS_OBJECT_BUCKET"):
         storage.store_for(_source("object"), tmp_path)

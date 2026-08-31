@@ -21,7 +21,7 @@ concurrency:
 env:
   CADENCE: daily
   SHARDS: "20" # matrix cap is 256 jobs/run — aim for ~20 jobs of ~50 sources
-  ENGINE_SPEC: "snapshotter @ git+https://github.com/OWNER/snapshotter.git@v0.1.0"
+  ENGINE_SPEC: "wss @ git+https://github.com/OWNER/wss-engine.git@v0.1.0"
 
 jobs:
   plan:
@@ -36,10 +36,10 @@ jobs:
       - name: Install engine
         run: pip install "$ENGINE_SPEC"
       - name: Validate registry (hard gate)
-        run: snapshotter validate
+        run: wss validate
       - name: Plan shards
         id: plan
-        run: echo "shards=$(snapshotter plan --cadence "$CADENCE" --shards "$SHARDS")" >> "$GITHUB_OUTPUT"
+        run: echo "shards=$(wss plan --cadence "$CADENCE" --shards "$SHARDS")" >> "$GITHUB_OUTPUT"
 
   capture:
     needs: plan
@@ -50,7 +50,7 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     env:
-      SNAPSHOTTER_CONTACT: ${{ secrets.SNAPSHOTTER_CONTACT }}
+      WSS_CONTACT: ${{ secrets.WSS_CONTACT }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -59,7 +59,7 @@ jobs:
       - name: Install engine
         run: pip install "$ENGINE_SPEC"
       - name: Capture shard ${{ matrix.shard }}
-        run: snapshotter capture --cadence "$CADENCE" --shard "${{ matrix.shard }}"
+        run: wss capture --cadence "$CADENCE" --shard "${{ matrix.shard }}"
       - name: Pack shard delta (new files only)
         if: always()
         run: |
@@ -104,8 +104,8 @@ jobs:
             > state/last_run.json
       - name: Commit with rebase-retry
         run: |
-          git config user.name "snapshotter-bot"
-          git config user.email "snapshotter-bot@users.noreply.github.com"
+          git config user.name "wss-bot"
+          git config user.email "wss-bot@users.noreply.github.com"
           git add -A raw manifest state
           if git diff --cached --quiet; then
             echo "nothing to commit"

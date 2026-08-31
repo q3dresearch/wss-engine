@@ -18,7 +18,7 @@ its own fetch time, backed by the same `raw_ref`.
 A parser is registered per `schema_id`:
 
 ```python
-from snapshotter import derive
+from wss import derive
 
 PARSER_VERSION = "1"
 
@@ -30,7 +30,7 @@ def parse(body: bytes, ctx: derive.ParseContext):
 derive.register("adoption.v1", parse, PARSER_VERSION)
 ```
 
-Run with `snapshotter derive --parsers parsers.adoption_v1` (repeatable; the
+Run with `wss derive --parsers parsers.adoption_v1` (repeatable; the
 data root is put on `sys.path`, so domain repos keep parsers in a `parsers/`
 package). A schema with manifest rows but no registered parser fails loudly.
 

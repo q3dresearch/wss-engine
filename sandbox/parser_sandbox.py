@@ -2,7 +2,7 @@
 
 import json
 
-from snapshotter import derive
+from wss import derive
 
 PARSER_VERSION = "1"
 

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from snapshotter import __version__, cli, derive, init
+from wss import __version__, cli, derive, init
 
 
 @pytest.fixture
@@ -50,12 +50,12 @@ def test_two_separate_licence_files(scaffolded):
 def test_workflows_pin_the_generating_engine_version(scaffolded):
     for name in ("capture-daily", "health", "derive", "validate"):
         text = (scaffolded / ".github" / "workflows" / f"{name}.yml").read_text()
-        assert f"snapshotter.git@v{__version__}" in text
+        assert f"wss-engine.git@v{__version__}" in text
         # GitHub's own ${{ }} expressions must survive templating untouched
         assert "${{ github.repository_owner }}" in text
         assert "{{" not in text.replace("${{", "")  # no unrendered placeholders
         yaml.safe_load(text)  # parses as YAML
-    assert f"snapshotter.git@v{__version__}" in (scaffolded / "requirements.txt").read_text()
+    assert f"wss-engine.git@v{__version__}" in (scaffolded / "requirements.txt").read_text()
 
 
 def test_derive_workflow_autodiscovers_parsers(scaffolded):

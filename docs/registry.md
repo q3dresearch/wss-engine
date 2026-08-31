@@ -43,7 +43,7 @@ typo that silently disables a gate is worse than a red build.
 
 ## Validation is a hard gate
 
-`snapshotter validate` fails on any problem; CI runs it on every push. Rules
+`wss validate` fails on any problem; CI runs it on every push. Rules
 beyond shape checking:
 
 - the filename must be `<source_id>.yml` and `source_id` must be

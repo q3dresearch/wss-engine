@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from snapshotter.gates import run_gates
+from wss.gates import run_gates
 
 GOOD = dict(
     status_code=200,

@@ -5,7 +5,7 @@ then followed forever — *including members that die*. Re-selecting "the top
 1,000 today" every quarter silently deletes every failure from history and
 turns the dataset into survivor worship.
 
-`snapshotter.cohort` is generic (not tied to any publisher):
+`wss.cohort` is generic (not tied to any publisher):
 
 - **Selection is manual and quarterly, never on a cron.** A human runs a
   script, reviews the result, commits it.
@@ -19,7 +19,7 @@ turns the dataset into survivor worship.
 - The **effective cohort** is the union of every vintage. Once in, never out.
 
 ```python
-from snapshotter.cohort import CohortCriteria, select_vintage, write_vintage
+from wss.cohort import CohortCriteria, select_vintage, write_vintage
 
 criteria = CohortCriteria(
     metric_key="downloads", created_key="createdAt",

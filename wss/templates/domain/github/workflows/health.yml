@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  ENGINE_SPEC: "snapshotter @ git+https://github.com/${{ github.repository_owner }}/snapshotter.git@v{{ENGINE_VERSION}}"
+  ENGINE_SPEC: "wss @ git+https://github.com/${{ github.repository_owner }}/wss-engine.git@v{{ENGINE_VERSION}}"
 
 jobs:
   health:
@@ -31,7 +31,7 @@ jobs:
       - name: Install engine
         run: pip install "$ENGINE_SPEC"
       - name: Rebuild health table, apply auto-disable
-        run: snapshotter health
+        run: wss health
       - name: Open an issue per newly auto-disabled source
         env:
           GH_TOKEN: ${{ github.token }}
@@ -53,8 +53,8 @@ jobs:
           done
       - name: Commit health table and any status flips (rebase-retry)
         run: |
-          git config user.name "snapshotter-bot"
-          git config user.email "snapshotter-bot@users.noreply.github.com"
+          git config user.name "wss-bot"
+          git config user.email "wss-bot@users.noreply.github.com"
           git add -A health registry state
           if git diff --cached --quiet; then
             echo "nothing to commit"

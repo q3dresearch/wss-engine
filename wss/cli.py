@@ -1,12 +1,12 @@
-"""snapshotter CLI — the whole interface.
+"""wss CLI — the whole interface.
 
-    snapshotter init <dir> --owner <gh-owner>      scaffold a new domain repo
-    snapshotter validate                          registry schema check; CI gate
-    snapshotter plan --cadence daily --shards 20  JSON shard array for the Actions matrix
-    snapshotter capture --cadence daily --shard 3/20
-    snapshotter health                            rebuild health table, apply auto-disable
-    snapshotter derive --since 2026-08            raw → observation tables
-    snapshotter doctor <source_id>               dry-run one source, print raw response
+    wss init <dir> --owner <gh-owner>      scaffold a new domain repo
+    wss validate                          registry schema check; CI gate
+    wss plan --cadence daily --shards 20  JSON shard array for the Actions matrix
+    wss capture --cadence daily --shard 3/20
+    wss health                            rebuild health table, apply auto-disable
+    wss derive --since 2026-08            raw → observation tables
+    wss doctor <source_id>               dry-run one source, print raw response
 """
 
 from __future__ import annotations
@@ -32,8 +32,8 @@ def cmd_init(args: argparse.Namespace, root: Path) -> int:
     print(f"  cd {target}")
     print("  git init && git add -A && git commit -m 'scaffold'   # .gitattributes lands before any CSV")
     print("  # edit registry/<source_id>.yml and parsers/, then:")
-    print("  export SNAPSHOTTER_CONTACT='you@example.com'")
-    print("  snapshotter validate && snapshotter doctor <source_id>")
+    print("  export WSS_CONTACT='you@example.com'")
+    print("  wss validate && wss doctor <source_id>")
     return 0
 
 
@@ -89,9 +89,9 @@ def cmd_doctor(args: argparse.Namespace, root: Path) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="snapshotter", description=__doc__)
+    parser = argparse.ArgumentParser(prog="wss", description=__doc__)
     parser.add_argument("--root", default=".", help="data root (default: current directory)")
-    parser.add_argument("--version", action="version", version=f"snapshotter {__version__}")
+    parser.add_argument("--version", action="version", version=f"wss {__version__}")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("init", help="scaffold a new domain repo from the engine's templates")

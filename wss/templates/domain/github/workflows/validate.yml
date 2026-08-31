@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  ENGINE_SPEC: "snapshotter @ git+https://github.com/${{ github.repository_owner }}/snapshotter.git@v{{ENGINE_VERSION}}"
+  ENGINE_SPEC: "wss @ git+https://github.com/${{ github.repository_owner }}/wss-engine.git@v{{ENGINE_VERSION}}"
 
 jobs:
   validate:
@@ -23,4 +23,4 @@ jobs:
       - name: Install engine
         run: pip install "$ENGINE_SPEC"
       - name: Validate registry
-        run: snapshotter validate
+        run: wss validate

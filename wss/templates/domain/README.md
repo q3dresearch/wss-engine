@@ -51,7 +51,7 @@ already published is removed.
 
 Three scheduled workflows a day — capture (22:10 UTC), health (23:40),
 derive (00:20) — powered by the
-[snapshotter](https://github.com/{{OWNER}}/snapshotter) engine, pinned to one
+[wss](https://github.com/{{OWNER}}/wss) engine, pinned to one
 version. No workflow ever names a source: capture shards whatever
 `registry/` marks active, so infrastructure never changes when sources do.
 The bot commits **data only** — it never changes code; the one config it may
@@ -62,7 +62,7 @@ issue explaining why.
 
 1. Add `registry/<source_id>.yml` (copy the example entry), `status: paused`.
 2. Add a parser in `parsers/` if the payload shape is new.
-3. `snapshotter doctor <source_id>` — **read the raw response**.
+3. `wss doctor <source_id>` — **read the raw response**.
 4. Flip to `status: active`, add a Coverage row, commit.
 
 Nothing else. No workflow edits, ever.
@@ -72,21 +72,21 @@ Nothing else. No workflow edits, ever.
 ```bash
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
-export SNAPSHOTTER_CONTACT="you@example.com"   # identifies you to publishers
+export WSS_CONTACT="you@example.com"   # identifies you to publishers
 
-snapshotter validate
-snapshotter doctor <source_id>
-snapshotter capture --cadence daily
-snapshotter derive --parsers parsers.<module>
-snapshotter health --dry-run
+wss validate
+wss doctor <source_id>
+wss capture --cadence daily
+wss derive --parsers parsers.<module>
+wss health --dry-run
 ```
 
 ## Going live
 
 1. Push this repo **and the engine repo** under the same GitHub owner
    (`{{OWNER}}`) — the workflows install the engine from
-   `github.com/{{OWNER}}/snapshotter` at the pinned tag.
-2. Set the repo secret **`SNAPSHOTTER_CONTACT`** — capture refuses to run
+   `github.com/{{OWNER}}/wss` at the pinned tag.
+2. Set the repo secret **`WSS_CONTACT`** — capture refuses to run
    without it.
 3. Run `capture-daily` once by hand (Actions → capture-daily → Run
    workflow), confirm the bot's data commit lands, then let the cron take

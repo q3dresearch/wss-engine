@@ -21,8 +21,8 @@ SANDBOX_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SANDBOX_DIR.parent))
 sys.path.insert(0, str(SANDBOX_DIR))
 
-from snapshotter import derive, manifest  # noqa: E402
-from snapshotter.cohort import CohortCriteria, effective_members, select_vintage, write_vintage  # noqa: E402
+from wss import derive, manifest  # noqa: E402
+from wss.cohort import CohortCriteria, effective_members, select_vintage, write_vintage  # noqa: E402
 from simulate import SOURCE_ID, simulate  # noqa: E402
 
 

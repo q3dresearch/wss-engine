@@ -5,7 +5,7 @@ The contract:
   2. Every fetch appends a manifest row, including unchanged ones.
   3. A failed gate quarantines the response; it never enters the archive.
   4. Failures are loud: any error/quarantined outcome makes the run red.
-  5. Identifiable user-agent (SNAPSHOTTER_CONTACT), robots.txt honoured,
+  5. Identifiable user-agent (WSS_CONTACT), robots.txt honoured,
      per-host delay, 3 retries with exponential backoff.
 """
 
@@ -31,7 +31,7 @@ from .registry import Endpoint, Source, load_registry, parse_shard, select, shar
 
 MAX_RETRIES = 3
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
-ROBOTS_AGENT = "snapshotter"
+ROBOTS_AGENT = "wss"
 
 
 class ContactMissing(RuntimeError):
@@ -45,17 +45,17 @@ class FetchError(RuntimeError):
 
 
 def contact_from_env() -> str:
-    contact = os.environ.get("SNAPSHOTTER_CONTACT", "").strip()
+    contact = os.environ.get("WSS_CONTACT", "").strip()
     if not contact:
         raise ContactMissing(
-            "SNAPSHOTTER_CONTACT is not set. Captures run with an identifiable "
+            "WSS_CONTACT is not set. Captures run with an identifiable "
             "user-agent; set it to an email a publisher can reach you at."
         )
     return contact
 
 
 def user_agent(contact: str) -> str:
-    return f"snapshotter/{__version__} (contact: {contact})"
+    return f"wss/{__version__} (contact: {contact})"
 
 
 def iso_z(dt: datetime) -> str:
@@ -82,7 +82,7 @@ class Fetcher:
         self.session = session or requests.Session()
         self.session.headers["User-Agent"] = user_agent(contact)
         if retry_base is None:
-            retry_base = float(os.environ.get("SNAPSHOTTER_RETRY_BASE", "2"))
+            retry_base = float(os.environ.get("WSS_RETRY_BASE", "2"))
         self.retry_base = retry_base
         self._last_hit: dict[str, float] = {}
         self._robots: dict[str, tuple[urllib.robotparser.RobotFileParser | None, str]] = {}

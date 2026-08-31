@@ -5,10 +5,10 @@ import json
 
 import pytest
 
-from snapshotter import derive, manifest
-from snapshotter.storage import LocalGitStore, raw_path
+from wss import derive, manifest
+from wss.storage import LocalGitStore, raw_path
 from tests.conftest import write_source_yaml
-from snapshotter.capture import parse_iso
+from wss.capture import parse_iso
 
 
 def parse_widgets(body: bytes, ctx: derive.ParseContext):

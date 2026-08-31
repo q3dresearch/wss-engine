@@ -4,7 +4,7 @@ import hashlib
 
 import pytest
 
-from snapshotter import cli, registry
+from wss import cli, registry
 from tests.conftest import write_source_yaml
 
 

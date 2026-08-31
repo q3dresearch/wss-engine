@@ -11,7 +11,7 @@
    quarantine is working-tree/CI-artifact material, never committed.
 4. **Failures are loud.** Any `error` or `quarantined` outcome exits non-zero
    and turns the build red.
-5. Identifiable user-agent carrying `SNAPSHOTTER_CONTACT` (capture refuses to
+5. Identifiable user-agent carrying `WSS_CONTACT` (capture refuses to
    run without it); `robots.txt` honoured; configured per-host delay; 3
    retries with exponential backoff on 429/5xx and connection errors.
 
@@ -47,7 +47,7 @@ disabling scheduled workflows after 60 quiet days.
 
 ## Doctor
 
-`snapshotter doctor <source_id>` dry-runs one source: robots verdict, fetch,
+`wss doctor <source_id>` dry-runs one source: robots verdict, fetch,
 headers, a preview of the raw bytes, and each gate's verdict. **Always run it
 and read the raw response before flipping a new source to `active`.** It
 writes nothing.

@@ -10,12 +10,12 @@ them once and never touches them again.
 plan ──▶ capture (matrix over shards) ──▶ commit (rebase-retry)
 ```
 
-1. **plan** — `snapshotter plan --cadence daily --shards 20` prints a JSON
+1. **plan** — `wss plan --cadence daily --shards 20` prints a JSON
    array of non-empty shards (`["1/20","7/20",…]`). The workflow feeds it to
    `fromJSON` as the job matrix. That single indirection is what lets ten
    workflows drive thousands of sources.
 2. **capture** — each matrix job runs
-   `snapshotter capture --cadence daily --shard <i>/<n>` over its slice, then
+   `wss capture --cadence daily --shard <i>/<n>` over its slice, then
    uploads only the *new* files (a tarball of staged changes plus quarantine)
    as an artifact. `fail-fast: false` so one bad source cannot stop the rest.
 3. **commit** — downloads every shard's delta, drops `quarantine/` (it stays
@@ -31,7 +31,7 @@ plan ──▶ capture (matrix over shards) ──▶ commit (rebase-retry)
 - One `concurrency` group shared by every repo-writing workflow
   (`group: fleet-commits`) serializes pushes; the rebase-retry loop mops up
   anything that still races.
-- **`SNAPSHOTTER_CONTACT`** (an email for the user-agent) must be set as a
+- **`WSS_CONTACT`** (an email for the user-agent) must be set as a
   repo secret before enabling schedules — capture refuses to run without it.
 - Every run commits `state/last_run.json` even when nothing changed: it
   proves the cron is alive and the activity stops GitHub disabling scheduled
@@ -39,13 +39,13 @@ plan ──▶ capture (matrix over shards) ──▶ commit (rebase-retry)
 
 ## The other workflows
 
-- **health.yml** — daily, after capture: `snapshotter health`, open a GitHub
+- **health.yml** — daily, after capture: `wss health`, open a GitHub
   issue per newly auto-disabled source (from `state/auto_disabled.json`),
   commit `health/` + flipped registry files.
 - **derive.yml** — scheduled: rebuild `derived/` and commit. On pull
   requests: rebuild and `git diff --exit-code -- derived` — **byte-identical
   or red**. A PR that changes a parser must contain the rebuilt output.
-- **validate.yml** — every push/PR: `snapshotter validate`. An invalid
+- **validate.yml** — every push/PR: `wss validate`. An invalid
   registry never lands on main.
 
 ## What not to build

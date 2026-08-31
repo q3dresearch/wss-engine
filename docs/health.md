@@ -5,7 +5,7 @@ moment something is broken; without auto-disable one dead source burns
 attention forever. Triage is a weekly pass over a sorted table, never a
 stream of alerts.
 
-`snapshotter health` derives everything from the manifest and writes
+`wss health` derives everything from the manifest and writes
 `health/health.csv`, worst first:
 
 ```

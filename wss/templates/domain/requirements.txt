@@ -1,0 +1,4 @@
+# This repo pins one engine version; the workflows install the same pin
+# (resolving the owner as ${{ github.repository_owner }}). For local
+# development against a sibling checkout: pip install -e ../wss
+wss @ git+https://github.com/{{OWNER}}/wss-engine.git@v{{ENGINE_VERSION}}

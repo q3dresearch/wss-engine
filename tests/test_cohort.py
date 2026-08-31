@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from snapshotter.cohort import CohortCriteria, effective_members, load_vintages, select_vintage, write_vintage
+from wss.cohort import CohortCriteria, effective_members, load_vintages, select_vintage, write_vintage
 
 CRITERIA = CohortCriteria(
     metric_key="downloads",

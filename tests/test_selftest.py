@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from snapshotter import cli, manifest
+from wss import cli, manifest
 from tests.conftest import write_source_yaml
 from tests.fixture_server import FixtureServer
 
@@ -134,6 +134,6 @@ def test_fleet_path_plan_shard_capture(tmp_path, capsys):
 
 
 def test_capture_requires_contact(tmp_path, monkeypatch):
-    monkeypatch.delenv("SNAPSHOTTER_CONTACT", raising=False)
+    monkeypatch.delenv("WSS_CONTACT", raising=False)
     write_source_yaml(tmp_path, "fixture.demo.alpha", "http://127.0.0.1:9/x")
     assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "daily"]) == 2

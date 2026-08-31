@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from snapshotter import derive
+from wss import derive
 
 
 @pytest.fixture(autouse=True)
@@ -17,8 +17,8 @@ def clean_parser_registry():
 
 @pytest.fixture
 def contact_env(monkeypatch):
-    monkeypatch.setenv("SNAPSHOTTER_CONTACT", "fleet-test@example.com")
-    monkeypatch.setenv("SNAPSHOTTER_RETRY_BASE", "0")
+    monkeypatch.setenv("WSS_CONTACT", "fleet-test@example.com")
+    monkeypatch.setenv("WSS_RETRY_BASE", "0")
 
 
 def write_source_yaml(

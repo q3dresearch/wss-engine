@@ -1,7 +1,7 @@
 """Scaffold a new domain repo from the engine's templates.
 
 The engine owns the boilerplate so it can never drift from the code that
-consumes it: a repo scaffolded by `snapshotter init` is pinned to the engine
+consumes it: a repo scaffolded by `wss init` is pinned to the engine
 version that generated it, and the workflows it writes are the same ones the
 engine's docs describe.
 

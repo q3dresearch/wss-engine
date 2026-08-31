@@ -2,7 +2,7 @@
 # delete this one. The filename must always match source_id.
 #
 # It ships `paused` so a fresh repo validates and captures nothing until you
-# have run `snapshotter doctor example.web.stats` and read the raw response.
+# have run `wss doctor example.web.stats` and read the raw response.
 source_id: example.web.stats     # publisher.domain.series — IMMUTABLE, never reused
 status: paused                   # active | paused | auto_disabled | retired
 cadence: daily                   # hourly | daily | weekly | monthly

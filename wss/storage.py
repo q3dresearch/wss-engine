@@ -84,7 +84,7 @@ class ObjectStore(Store):
     """S3-compatible object storage (target: Cloudflare R2 for zero egress).
 
     Same keys as LocalGitStore paths. boto3 is imported lazily so the engine
-    has no hard dependency on it; install with `pip install snapshotter[object]`.
+    has no hard dependency on it; install with `pip install wss[object]`.
     """
 
     def __init__(self, bucket: str, endpoint_url: str | None = None, prefix: str = "", client=None):
@@ -117,13 +117,13 @@ def store_for(source, root: Path | str) -> Store:
     """Pick the backend the source declares. Object config comes from env."""
     if source.storage == "git":
         return LocalGitStore(root)
-    bucket = os.environ.get("SNAPSHOTTER_OBJECT_BUCKET", "")
+    bucket = os.environ.get("WSS_OBJECT_BUCKET", "")
     if not bucket:
         raise RuntimeError(
-            f"{source.source_id} declares storage: object but SNAPSHOTTER_OBJECT_BUCKET is not set"
+            f"{source.source_id} declares storage: object but WSS_OBJECT_BUCKET is not set"
         )
     return ObjectStore(
         bucket=bucket,
-        endpoint_url=os.environ.get("SNAPSHOTTER_OBJECT_ENDPOINT") or None,
-        prefix=os.environ.get("SNAPSHOTTER_OBJECT_PREFIX", ""),
+        endpoint_url=os.environ.get("WSS_OBJECT_ENDPOINT") or None,
+        prefix=os.environ.get("WSS_OBJECT_PREFIX", ""),
     )

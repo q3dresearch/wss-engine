@@ -23,12 +23,12 @@ egress. Configure via environment:
 
 | variable | meaning |
 | --- | --- |
-| `SNAPSHOTTER_OBJECT_BUCKET` | bucket name (required) |
-| `SNAPSHOTTER_OBJECT_ENDPOINT` | endpoint URL (R2: `https://<account>.r2.cloudflarestorage.com`) |
-| `SNAPSHOTTER_OBJECT_PREFIX` | optional key prefix |
+| `WSS_OBJECT_BUCKET` | bucket name (required) |
+| `WSS_OBJECT_ENDPOINT` | endpoint URL (R2: `https://<account>.r2.cloudflarestorage.com`) |
+| `WSS_OBJECT_PREFIX` | optional key prefix |
 
 Credentials use the standard AWS variables (`AWS_ACCESS_KEY_ID`,
-`AWS_SECRET_ACCESS_KEY`). Install the extra: `pip install snapshotter[object]`.
+`AWS_SECRET_ACCESS_KEY`). Install the extra: `pip install wss[object]`.
 
 **The manifest always stays in git** regardless of backend — it is the
 provenance record, and `raw_ref` keys resolve in either backend because the

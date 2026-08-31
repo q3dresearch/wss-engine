@@ -1,7 +1,7 @@
 # Example registry entry. Copy into a domain repo as
 # registry/<source_id>.yml — the filename must match source_id.
 source_id: example.web.stats
-status: paused            # start paused; run `snapshotter doctor example.web.stats`,
+status: paused            # start paused; run `wss doctor example.web.stats`,
                           # read the raw response, then flip to active
 cadence: daily
 schema_id: example.v1

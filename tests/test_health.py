@@ -4,8 +4,8 @@ import csv
 import json
 from datetime import datetime, timezone
 
-from snapshotter import manifest, registry
-from snapshotter.health import run_health
+from wss import manifest, registry
+from wss.health import run_health
 from tests.conftest import write_source_yaml
 
 NOW = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)

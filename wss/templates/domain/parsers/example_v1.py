@@ -8,12 +8,12 @@ has since changed.
 The workflows auto-discover every module in this package, so adding a parser
 needs no workflow edit. Locally:
 
-    snapshotter derive --parsers parsers.example_v1
+    wss derive --parsers parsers.example_v1
 """
 
 import json
 
-from snapshotter import derive
+from wss import derive
 
 PARSER_VERSION = "1"
 

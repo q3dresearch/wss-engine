@@ -29,7 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from snapshotter import manifest, storage  # noqa: E402
+from wss import manifest, storage  # noqa: E402
 
 SOURCE_ID = "sandbox.models.demo"
 END_DATE = date(2026, 8, 31)
