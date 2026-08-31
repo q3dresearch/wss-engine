@@ -1,0 +1,115 @@
+# snapshotter
+
+Registry-driven capture fleet. Archive web responses **verbatim**, keep an
+append-only manifest as the provenance record, and derive point-in-time
+observation tables from the archive — never from the live web.
+
+The engine holds **no data, ever**. A *domain repo* holds a registry of
+sources, runs this CLI from a handful of scheduled GitHub Actions workflows,
+and commits what comes back. The design target is 1,000+ concurrent
+collections managed by one person, so the binding constraint is human
+attention — every design decision serves that.
+
+## The rule everything hangs on
+
+**There is never a workflow per source.** A registry drives the fleet: a few
+scheduled workflows read it, shard the active sources across a job matrix,
+and each job walks its slice.
+
+- Adding a collection is **one new file** (`registry/<source_id>.yml`).
+- Removing one is a status change.
+- No infrastructure is touched either way.
+
+If a change requires editing a workflow to add a data source, the design is
+wrong.
+
+## Install
+
+```
+pip install "snapshotter @ git+https://github.com/OWNER/snapshotter.git@v0.1.0"
+# object-storage backend (Cloudflare R2 / S3):
+pip install "snapshotter[object] @ git+https://github.com/OWNER/snapshotter.git@v0.1.0"
+```
+
+## CLI — this is the whole interface
+
+```
+snapshotter validate                          # registry schema check; CI gate
+snapshotter plan --cadence daily --shards 20  # JSON shard array for the Actions matrix
+snapshotter capture --cadence daily --shard 3/20
+snapshotter health                            # rebuild health table, apply auto-disable
+snapshotter derive --since 2026-08            # raw → observation tables
+snapshotter doctor <source_id>                # dry-run one source, print raw response
+```
+
+All commands take `--root` (default: current directory) pointing at the data
+root — the domain repo checkout.
+
+## The capture contract — non-negotiable
+
+1. Raw response bytes archived verbatim; nothing parsed at capture time.
+2. Every fetch appends a manifest row, including unchanged ones — dedupe
+   skips the file write, never the observation.
+3. Failed gate → quarantine; bad responses never enter the archive.
+4. Failures are loud: non-zero exit, red build.
+5. Identifiable user-agent (`SNAPSHOTTER_CONTACT`), robots.txt honoured,
+   per-host delay, 3 retries with exponential backoff.
+
+Details: [docs/capture.md](docs/capture.md).
+
+## Layout
+
+```
+snapshotter/
+├── registry.py    load, validate, select active, deterministic sharding
+├── capture.py     fetch → gate → hash → dedupe → write → manifest; doctor
+├── gates.py       validation rules
+├── storage.py     LocalGitStore | ObjectStore — one interface, same paths
+├── manifest.py    append-only fetch log; the provenance record
+├── health.py      health table from manifest; auto-disable
+├── cohort.py      frozen cohort selection (generic, not publisher-specific)
+├── derive.py      raw → long-format observation tables
+├── csvio.py       deterministic CSV conventions
+└── cli.py
+```
+
+Docs: [registry](docs/registry.md) · [capture](docs/capture.md) ·
+[storage](docs/storage.md) · [health](docs/health.md) ·
+[derive](docs/derive.md) · [cohort](docs/cohort.md) ·
+[fleet workflows](docs/fleet.md)
+
+Examples: a [registry entry](examples/registry/example.web.stats.yml), a
+[parser](examples/parsers/example_parser.py), and the canonical
+[capture workflow](examples/workflows/capture-daily.yml) a domain repo copies.
+
+## Sandbox
+
+`python sandbox/run.py` generates ~4 months of synthetic captures in the real
+archive shape with ground truth planted — an incumbent decaying, a challenger
+accelerating, a plateau, one faded and dead — then derives, runs
+`sandbox/analysis.sql`, and **asserts the analysis recovers the planted
+truth**. Analysis gets built and tested before a single real byte exists.
+
+## Tests
+
+```
+pip install -e ".[dev]"
+pytest
+```
+
+The self-test (`tests/test_selftest.py`) drives every outcome —
+first_capture, unchanged, changed, quarantined, error, skipped, plus the
+heartbeat — against a local fixture server on an OS-assigned port, and proves
+the fleet path (plan → deterministic shards → capture) with three dummy
+registry entries. No network leaves the machine.
+
+## Prior art this borrows from
+
+Singer taps/targets and Meltano (config-as-fleet), dbt (derived layer), DCAT
+(catalog vocabulary, for the later serving layer), SCD Type 2 (the formal
+name for the bitemporal history pattern).
+
+## Licence
+
+MIT (engine code). Domain repos license their *data* separately —
+see the two-file pattern (`LICENSE` + `LICENSE-DATA`) in any domain repo.

@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "snapshotter"
+version = "0.1.0"
+description = "Registry-driven capture fleet: archive web responses verbatim, derive point-in-time observation tables."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "snapshotter contributors" }]
+dependencies = [
+    "pyyaml>=6",
+    "requests>=2.28",
+]
+keywords = ["git-scraping", "open-data", "point-in-time-data", "dataset"]
+
+[project.optional-dependencies]
+object = ["boto3>=1.28"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+snapshotter = "snapshotter.cli:run"
+
+[tool.setuptools.packages.find]
+include = ["snapshotter*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

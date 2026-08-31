@@ -1,0 +1,161 @@
+"""Derive: raw archive → long-format observation tables.
+
+    series_id, entity_id, observed_at, captured_at,
+    metric, value, unit, source_id, raw_ref, parser_version
+
+observed_at is when the fact was true; captured_at is when we saw it. That
+separation is the point-in-time guarantee (bitemporal modelling / SCD Type 2).
+
+Parsers are plugins keyed by schema_id. A parser must be a pure function of
+the response bytes — a parser bug is fixed by re-parsing the archive, never
+by re-fetching. Leave observed_at None unless the payload itself carries the
+observation time; derive fills it with the fetch time of each manifest row
+(so an `unchanged` fetch still yields its own dated observation).
+"""
+
+from __future__ import annotations
+
+import importlib
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, Iterable
+
+from . import manifest, storage
+from .csvio import format_value, write_csv
+from .registry import Source, load_registry
+
+OBS_COLUMNS = [
+    "series_id",
+    "entity_id",
+    "observed_at",
+    "captured_at",
+    "metric",
+    "value",
+    "unit",
+    "source_id",
+    "raw_ref",
+    "parser_version",
+]
+
+
+class DeriveError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class Observation:
+    entity_id: str
+    metric: str
+    value: object
+    unit: str = ""
+    series_id: str | None = None  # defaults to the source_id
+    observed_at: str | None = None  # defaults to the manifest row's fetched_at
+
+
+@dataclass(frozen=True)
+class ParseContext:
+    source: Source
+    url: str
+    raw_ref: str
+
+
+Parser = Callable[[bytes, ParseContext], Iterable[Observation]]
+
+_PARSERS: dict[str, tuple[Parser, str]] = {}
+
+
+def register(schema_id: str, fn: Parser, version: str = "1") -> None:
+    _PARSERS[schema_id] = (fn, str(version))
+
+
+def registered() -> dict[str, str]:
+    return {schema: version for schema, (_, version) in _PARSERS.items()}
+
+
+def clear_parsers() -> None:
+    _PARSERS.clear()
+
+
+def derive(
+    root: Path | str,
+    since: str | None = None,
+    parser_modules: Iterable[str] = (),
+    log: Callable[[str], None] = lambda s: None,
+) -> dict:
+    """Rebuild derived/observations/<YYYY-MM>.csv from raw + manifest.
+
+    Deterministic: sorted rows, canonical formatting — a rebuild over the
+    same archive is byte-identical. `since` limits the rebuild to partitions
+    from that month on (a full rebuild also prunes stale partitions).
+    """
+    root = Path(root)
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    for module in parser_modules:
+        importlib.import_module(module)
+
+    sources = load_registry(root)
+    missing: set[str] = set()
+    obs_rows: list[dict] = []
+    parse_cache: dict[str, list[Observation]] = {}
+
+    for source in sources:
+        entry = _PARSERS.get(source.schema_id)
+        store = storage.store_for(source, root)
+        for row in manifest.iter_rows(root, source.source_id):
+            if row.get("outcome") not in manifest.SUCCESS_OUTCOMES:
+                continue
+            if since and row["fetched_at"][:7] < since:
+                continue
+            if entry is None:
+                missing.add(source.schema_id)
+                continue
+            fn, version = entry
+            raw_ref = row["raw_ref"]
+            if raw_ref not in parse_cache:
+                body = store.read(raw_ref)
+                ctx = ParseContext(source=source, url=row["url"], raw_ref=raw_ref)
+                parse_cache[raw_ref] = list(fn(body, ctx))
+            for obs in parse_cache[raw_ref]:
+                obs_rows.append(
+                    {
+                        "series_id": obs.series_id or source.source_id,
+                        "entity_id": obs.entity_id,
+                        "observed_at": obs.observed_at or row["fetched_at"],
+                        "captured_at": row["fetched_at"],
+                        "metric": obs.metric,
+                        "value": format_value(obs.value),
+                        "unit": obs.unit,
+                        "source_id": source.source_id,
+                        "raw_ref": raw_ref,
+                        "parser_version": version,
+                    }
+                )
+
+    if missing:
+        raise DeriveError(
+            f"no parser registered for schema_id(s): {', '.join(sorted(missing))} "
+            f"— pass --parsers <module> (registered: {sorted(registered()) or 'none'})"
+        )
+
+    by_month: dict[str, list[dict]] = {}
+    for row in obs_rows:
+        by_month.setdefault(row["observed_at"][:7], []).append(row)
+
+    out_dir = root / "derived" / "observations"
+    written: list[str] = []
+    for month in sorted(by_month):
+        rows = sorted(by_month[month], key=lambda r: tuple(r[c] for c in OBS_COLUMNS))
+        path = out_dir / f"{month}.csv"
+        write_csv(path, OBS_COLUMNS, rows)
+        written.append(path.name)
+        log(f"wrote {path.relative_to(root)} ({len(rows)} rows)")
+
+    if since is None and out_dir.is_dir():
+        for path in sorted(out_dir.glob("*.csv")):
+            if path.name not in written:
+                path.unlink()
+                log(f"pruned stale partition {path.relative_to(root)}")
+
+    return {"rows": len(obs_rows), "partitions": written}

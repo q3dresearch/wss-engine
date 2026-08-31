@@ -1,0 +1,121 @@
+# Canonical capture workflow. Copy into a domain repo's .github/workflows/.
+# Weekly/monthly variants change only `name`, the cron, and CADENCE.
+#
+# There is never a workflow per source: this one workflow shards whatever the
+# registry marks active. Adding a source is one registry file, nothing here.
+name: capture-daily
+
+on:
+  schedule:
+    - cron: "10 22 * * *" # off the hour — GitHub's scheduler is contended at :00
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# One writer group across capture/health/derive keeps pushes serialized.
+concurrency:
+  group: fleet-commits-daily
+  cancel-in-progress: false
+
+env:
+  CADENCE: daily
+  SHARDS: "20" # matrix cap is 256 jobs/run — aim for ~20 jobs of ~50 sources
+  ENGINE_SPEC: "snapshotter @ git+https://github.com/OWNER/snapshotter.git@v0.1.0"
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install engine
+        run: pip install "$ENGINE_SPEC"
+      - name: Validate registry (hard gate)
+        run: snapshotter validate
+      - name: Plan shards
+        id: plan
+        run: echo "shards=$(snapshotter plan --cadence "$CADENCE" --shards "$SHARDS")" >> "$GITHUB_OUTPUT"
+
+  capture:
+    needs: plan
+    if: needs.plan.outputs.shards != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false # one bad source must not stop the rest of the fleet
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    env:
+      SNAPSHOTTER_CONTACT: ${{ secrets.SNAPSHOTTER_CONTACT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install engine
+        run: pip install "$ENGINE_SPEC"
+      - name: Capture shard ${{ matrix.shard }}
+        run: snapshotter capture --cadence "$CADENCE" --shard "${{ matrix.shard }}"
+      - name: Pack shard delta (new files only)
+        if: always()
+        run: |
+          git add -A raw manifest 2>/dev/null || true
+          { git diff --cached --name-only; find quarantine -type f 2>/dev/null || true; } > /tmp/delta-files.txt
+          if [ -s /tmp/delta-files.txt ]; then
+            tar -czf shard-delta.tgz --files-from=/tmp/delta-files.txt
+          fi
+      - name: Upload shard delta
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capture-${{ env.CADENCE }}-${{ strategy.job-index }}
+          path: shard-delta.tgz
+          if-no-files-found: ignore
+          retention-days: 90
+
+  commit:
+    needs: [plan, capture]
+    # always(): a red shard still gets its successful sources committed
+    if: always() && needs.plan.result == 'success' && needs.plan.outputs.shards != '[]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: capture-${{ env.CADENCE }}-*
+          merge-multiple: false
+          path: /tmp/deltas
+      - name: Unpack shard deltas
+        run: |
+          find /tmp/deltas -name 'shard-delta.tgz' -print0 | while IFS= read -r -d '' f; do
+            tar -xzf "$f"
+          done
+      - name: Drop quarantine (triage lives in CI artifacts, never in git)
+        run: rm -rf quarantine
+      - name: Heartbeat — proves the cron is alive even when nothing changed
+        run: |
+          mkdir -p state
+          printf '{"cadence":"%s","completed_at":"%s","run_id":"%s","workflow":"%s"}\n' \
+            "$CADENCE" "$(date -u +%FT%TZ)" "${{ github.run_id }}" "${{ github.workflow }}" \
+            > state/last_run.json
+      - name: Commit with rebase-retry
+        run: |
+          git config user.name "snapshotter-bot"
+          git config user.email "snapshotter-bot@users.noreply.github.com"
+          git add -A raw manifest state
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+            exit 0
+          fi
+          git commit -m "capture($CADENCE): run ${{ github.run_id }}"
+          for i in 1 2 3 4 5; do
+            if git push; then exit 0; fi
+            sleep $((i * 5))
+            git pull --rebase
+          done
+          echo "push failed after 5 attempts" >&2
+          exit 1
