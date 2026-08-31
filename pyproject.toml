@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "snapshotter"
-version = "0.1.1"
+version = "0.2.0"
 description = "Registry-driven capture fleet: archive web responses verbatim, derive point-in-time observation tables."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,6 +25,11 @@ snapshotter = "snapshotter.cli:run"
 
 [tool.setuptools.packages.find]
 include = ["snapshotter*"]
+
+# The domain-repo templates ship with the engine so `snapshotter init` works
+# from a plain pip install.
+[tool.setuptools.package-data]
+snapshotter = ["templates/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

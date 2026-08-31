@@ -34,6 +34,7 @@ pip install "snapshotter[object] @ git+https://github.com/neldivad/snapshotter.g
 ## CLI — this is the whole interface
 
 ```
+snapshotter init ../wss-arxiv --owner me      # scaffold a new domain repo
 snapshotter validate                          # registry schema check; CI gate
 snapshotter plan --cadence daily --shards 20  # JSON shard array for the Actions matrix
 snapshotter capture --cadence daily --shard 3/20
@@ -70,13 +71,22 @@ snapshotter/
 ├── cohort.py      frozen cohort selection (generic, not publisher-specific)
 ├── derive.py      raw → long-format observation tables
 ├── csvio.py       deterministic CSV conventions
+├── init.py        scaffold a domain repo from templates/
 └── cli.py
 ```
 
-Docs: [registry](docs/registry.md) · [capture](docs/capture.md) ·
-[storage](docs/storage.md) · [health](docs/health.md) ·
-[derive](docs/derive.md) · [cohort](docs/cohort.md) ·
-[fleet workflows](docs/fleet.md)
+Docs: [new domain repo](docs/new-domain.md) · [registry](docs/registry.md) ·
+[capture](docs/capture.md) · [storage](docs/storage.md) ·
+[health](docs/health.md) · [derive](docs/derive.md) ·
+[cohort](docs/cohort.md) · [fleet workflows](docs/fleet.md)
+
+## Starting a new domain repo
+
+`snapshotter init <dir> --owner <gh-owner>` writes a complete, immediately
+valid domain repo — workflows, licences, `.gitattributes` (before any CSV
+exists), an example registry entry and parser. **Never fork an existing
+domain repo**; forks inherit the wrong parsers and drift from the template.
+See [docs/new-domain.md](docs/new-domain.md).
 
 Examples: a [registry entry](examples/registry/example.web.stats.yml), a
 [parser](examples/parsers/example_parser.py), and the canonical

@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use this dataset, please cite it."
+type: dataset
+title: "{{TITLE}} ({{NAME}})"
+abstract: >-
+  TODO: one paragraph on what this dataset captures, and why the history
+  would otherwise be lost.
+authors:
+  - name: "{{OWNER}}"
+    website: "https://github.com/{{OWNER}}"
+license: CC-BY-4.0
+keywords:
+  - git-scraping
+  - open-data
+  - point-in-time-data
+  - dataset

@@ -1,0 +1,70 @@
+# Daily, after the capture window. Rebuilds health/health.csv from the
+# manifest, auto-disables sources with 5+ consecutive failures, and opens one
+# GitHub issue per newly disabled source. Triage is a weekly pass over the
+# sorted health table — never a stream of alerts.
+name: health
+
+on:
+  schedule:
+    - cron: "40 23 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: fleet-commits-daily
+  cancel-in-progress: false
+
+env:
+  ENGINE_SPEC: "snapshotter @ git+https://github.com/${{ github.repository_owner }}/snapshotter.git@v{{ENGINE_VERSION}}"
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install engine
+        run: pip install "$ENGINE_SPEC"
+      - name: Rebuild health table, apply auto-disable
+        run: snapshotter health
+      - name: Open an issue per newly auto-disabled source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -c "
+          import json
+          for d in json.load(open('state/auto_disabled.json'))['disabled']:
+              print(d['source_id'], d['consecutive_failures'], d['last_success_at'] or 'never', sep='\t')
+          " | while IFS=$'\t' read -r sid fails last; do
+            [ -z "$sid" ] && continue
+            open_count=$(gh issue list --state open --search "auto-disabled: $sid in:title" --json number --jq length)
+            if [ "$open_count" != "0" ]; then
+              echo "issue already open for $sid"
+              continue
+            fi
+            gh issue create \
+              --title "auto-disabled: $sid" \
+              --body "$(printf 'Source **%s** was auto-disabled after **%s consecutive failures** (last success: %s).\n\nRecent manifest rows: `manifest/%s/`\nQuarantined bytes (if any): capture run artifacts, 90-day retention.\n\nTo re-enable: fix the cause, set `status: active` in `registry/%s.yml`, commit.' "$sid" "$fails" "$last" "$sid" "$sid")"
+          done
+      - name: Commit health table and any status flips (rebase-retry)
+        run: |
+          git config user.name "snapshotter-bot"
+          git config user.email "snapshotter-bot@users.noreply.github.com"
+          git add -A health registry state
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+            exit 0
+          fi
+          git commit -m "health: run ${{ github.run_id }}"
+          for i in 1 2 3 4 5; do
+            if git push; then exit 0; fi
+            sleep $((i * 5))
+            git pull --rebase
+          done
+          echo "push failed after 5 attempts" >&2
+          exit 1

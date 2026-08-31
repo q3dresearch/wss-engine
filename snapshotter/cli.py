@@ -1,5 +1,6 @@
 """snapshotter CLI — the whole interface.
 
+    snapshotter init <dir> --owner <gh-owner>      scaffold a new domain repo
     snapshotter validate                          registry schema check; CI gate
     snapshotter plan --cadence daily --shards 20  JSON shard array for the Actions matrix
     snapshotter capture --cadence daily --shard 3/20
@@ -14,11 +15,26 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, capture, derive, health, registry
+from . import __version__, capture, derive, health, init, registry
 
 
 def _err(msg: str) -> None:
     print(msg, file=sys.stderr)
+
+
+def cmd_init(args: argparse.Namespace, root: Path) -> int:
+    target = Path(args.directory).resolve()
+    written = init.scaffold(
+        target, owner=args.owner, title=args.title, name=args.name, force=args.force
+    )
+    print(f"scaffolded {len(written)} files into {target}")
+    print("\nnext:")
+    print(f"  cd {target}")
+    print("  git init && git add -A && git commit -m 'scaffold'   # .gitattributes lands before any CSV")
+    print("  # edit registry/<source_id>.yml and parsers/, then:")
+    print("  export SNAPSHOTTER_CONTACT='you@example.com'")
+    print("  snapshotter validate && snapshotter doctor <source_id>")
+    return 0
 
 
 def cmd_validate(args: argparse.Namespace, root: Path) -> int:
@@ -78,6 +94,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"snapshotter {__version__}")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
+    p = sub.add_parser("init", help="scaffold a new domain repo from the engine's templates")
+    p.add_argument("directory", help="where to create the repo, e.g. ../wss-arxiv")
+    p.add_argument("--owner", required=True, help="GitHub owner that will host this repo and the engine")
+    p.add_argument("--title", help="human title, e.g. 'arXiv Listing History' (default: derived from the name)")
+    p.add_argument("--name", help="repo name (default: the directory's basename)")
+    p.add_argument("--force", action="store_true", help="write into a non-empty directory")
+
     sub.add_parser("validate", help="validate the registry; non-zero exit on any problem")
 
     p = sub.add_parser("plan", help="print the JSON shard array for the workflow matrix")
@@ -112,6 +135,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     root = Path(args.root).resolve()
     handlers = {
+        "init": cmd_init,
         "validate": cmd_validate,
         "plan": cmd_plan,
         "capture": cmd_capture,
@@ -128,6 +152,9 @@ def main(argv: list[str] | None = None) -> int:
         _err(str(exc))
         return 2
     except derive.DeriveError as exc:
+        _err(str(exc))
+        return 1
+    except init.InitError as exc:
         _err(str(exc))
         return 1
 

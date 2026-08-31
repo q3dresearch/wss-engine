@@ -1,0 +1,74 @@
+# Rebuilds derived/ from raw/ + manifest/.
+#   scheduled / manual  → rebuild and commit the new observations
+#   pull requests       → rebuild and FAIL unless byte-identical to what is
+#                         committed (catches hand-edited CSVs and
+#                         nondeterministic parsers; a parser PR must contain
+#                         its rebuilt output)
+#
+# Parsers are auto-discovered from parsers/*.py, so adding a schema needs no
+# workflow edit — same rule as adding a source.
+name: derive
+
+on:
+  schedule:
+    - cron: "20 0 * * *" # after capture + health
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "parsers/**"
+      - "raw/**"
+      - "manifest/**"
+      - "derived/**"
+      - "registry/**"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fleet-commits-daily
+  cancel-in-progress: false
+
+env:
+  ENGINE_SPEC: "snapshotter @ git+https://github.com/${{ github.repository_owner }}/snapshotter.git@v{{ENGINE_VERSION}}"
+
+jobs:
+  derive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install engine
+        run: pip install "$ENGINE_SPEC"
+      - name: Rebuild derived/ from the raw archive
+        run: |
+          ARGS=""
+          for f in parsers/*.py; do
+            module=$(basename "$f" .py)
+            [ "$module" = "__init__" ] && continue
+            ARGS="$ARGS --parsers parsers.$module"
+          done
+          echo "parsers:$ARGS"
+          snapshotter derive $ARGS
+      - name: Byte-identical or red (pull requests)
+        if: github.event_name == 'pull_request'
+        run: git diff --exit-code -- derived
+      - name: Commit new observations (scheduled/manual)
+        if: github.event_name != 'pull_request'
+        run: |
+          git config user.name "snapshotter-bot"
+          git config user.email "snapshotter-bot@users.noreply.github.com"
+          git add -A derived
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+            exit 0
+          fi
+          git commit -m "derive: run ${{ github.run_id }}"
+          for i in 1 2 3 4 5; do
+            if git push; then exit 0; fi
+            sleep $((i * 5))
+            git pull --rebase
+          done
+          echo "push failed after 5 attempts" >&2
+          exit 1

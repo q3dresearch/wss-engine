@@ -1,0 +1,5 @@
+# Committed BEFORE the first CSV so line endings are stable from day one.
+*.csv text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.md text eol=lf

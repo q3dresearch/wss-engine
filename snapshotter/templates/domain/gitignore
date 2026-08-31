@@ -1,0 +1,7 @@
+# Quarantined responses are triage material — they live in CI artifacts for
+# 90 days, never in git. Bad bytes must not enter the archive.
+quarantine/
+
+__pycache__/
+*.pyc
+.venv/
