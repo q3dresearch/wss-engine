@@ -26,9 +26,9 @@ wrong.
 ## Install
 
 ```
-pip install "snapshotter @ git+https://github.com/OWNER/snapshotter.git@v0.1.0"
+pip install "snapshotter @ git+https://github.com/neldivad/snapshotter.git@v0.1.0"
 # object-storage backend (Cloudflare R2 / S3):
-pip install "snapshotter[object] @ git+https://github.com/OWNER/snapshotter.git@v0.1.0"
+pip install "snapshotter[object] @ git+https://github.com/neldivad/snapshotter.git@v0.1.0"
 ```
 
 ## CLI — this is the whole interface
