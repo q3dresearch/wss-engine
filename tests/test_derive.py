@@ -102,3 +102,31 @@ def test_missing_parser_is_loud(tmp_path):
     seed_archive(tmp_path)
     with pytest.raises(derive.DeriveError, match="test.v1"):
         derive.derive(tmp_path)
+
+
+def test_parsers_are_auto_discovered(tmp_path):
+    """Adding a parser needs no more ceremony than adding a source."""
+    seed_archive(tmp_path)
+    pkg = tmp_path / "parsers"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "widgets_v1.py").write_text(
+        "import json\n"
+        "from wss import derive\n"
+        "def parse(body, ctx):\n"
+        "    yield derive.Observation(entity_id='acme/widget', metric='widgets',\n"
+        "                             value=json.loads(body)['widgets'], unit='count')\n"
+        "derive.register('test.v1', parse, '9')\n"
+    )
+    assert derive.discover_parsers(tmp_path) == ["parsers.widgets_v1"]
+
+    stats = derive.derive(tmp_path)  # no --parsers passed
+    assert stats["rows"] == 3
+    assert read_partition(tmp_path)[0]["parser_version"] == "9"
+
+
+def test_explicit_parsers_override_discovery(tmp_path):
+    seed_archive(tmp_path)
+    derive.register("test.v1", parse_widgets, "3")
+    stats = derive.derive(tmp_path, parser_modules=[])
+    assert stats["rows"] == 3  # no parsers/ dir present; registered parser still used

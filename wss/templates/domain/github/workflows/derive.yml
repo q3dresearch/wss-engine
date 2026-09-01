@@ -42,15 +42,7 @@ jobs:
       - name: Install engine
         run: pip install "$ENGINE_SPEC"
       - name: Rebuild derived/ from the raw archive
-        run: |
-          ARGS=""
-          for f in parsers/*.py; do
-            module=$(basename "$f" .py)
-            [ "$module" = "__init__" ] && continue
-            ARGS="$ARGS --parsers parsers.$module"
-          done
-          echo "parsers:$ARGS"
-          wss derive $ARGS
+        run: wss derive
       - name: Byte-identical or red (pull requests)
         if: github.event_name == 'pull_request'
         run: git diff --exit-code -- derived

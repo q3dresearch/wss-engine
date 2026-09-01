@@ -103,6 +103,23 @@ def registered() -> dict[str, str]:
     return {schema: version for schema, (_, version) in _PARSERS.items()}
 
 
+def discover_parsers(root: Path | str) -> list[str]:
+    """Every module in the repo's `parsers/` package, as importable names.
+
+    Adding a parser should need no more ceremony than adding a source, so
+    derive finds them itself. `--parsers` overrides this for the odd case of
+    parsers living somewhere else.
+    """
+    parsers_dir = Path(root) / "parsers"
+    if not parsers_dir.is_dir():
+        return []
+    return [
+        f"parsers.{p.stem}"
+        for p in sorted(parsers_dir.glob("*.py"))
+        if p.stem != "__init__"
+    ]
+
+
 def clear_parsers(keep_builtins: bool = True) -> None:
     _PARSERS.clear()
     if keep_builtins:
@@ -124,7 +141,8 @@ def derive(
     root = Path(root)
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
-    for module in parser_modules:
+    modules = list(parser_modules) or discover_parsers(root)
+    for module in modules:
         importlib.import_module(module)
 
     sources = load_registry(root)

@@ -58,9 +58,11 @@ def test_workflows_pin_the_generating_engine_version(scaffolded):
     assert f"wss-engine.git@v{__version__}" in (scaffolded / "requirements.txt").read_text()
 
 
-def test_derive_workflow_autodiscovers_parsers(scaffolded):
+def test_derive_workflow_needs_no_parser_wiring(scaffolded):
     text = (scaffolded / ".github" / "workflows" / "derive.yml").read_text()
-    assert "for f in parsers/*.py" in text  # adding a parser needs no workflow edit
+    # the engine discovers parsers/*.py itself, so the workflow just says "derive"
+    assert "run: wss derive" in text
+    assert "--parsers" not in text  # adding a parser needs no workflow edit
     assert "git diff --exit-code -- derived" in text  # byte-identical gate on PRs
 
 

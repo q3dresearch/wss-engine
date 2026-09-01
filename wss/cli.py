@@ -135,7 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="MODULE",
-        help="importable module that registers parsers (repeatable), e.g. parsers.adoption_v1",
+        help="override parser discovery with an explicit module (repeatable); "
+        "by default every module in the repo's parsers/ package is loaded",
     )
 
     p = sub.add_parser("doctor", help="dry-run one source and print the raw response")
