@@ -148,6 +148,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     root = Path(args.root).resolve()
+    # Local convenience: <root>/.env.local supplies credentials for local runs.
+    # Real environment variables always win, so CI secrets are never shadowed.
+    capture.load_env_file(root)
     handlers = {
         "explore": cmd_explore,
         "init": cmd_init,

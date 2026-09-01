@@ -15,7 +15,7 @@ concurrent collections managed by one person, so the binding constraint is
 human attention — every design decision serves that.
 
 ```bash
-pip install "wss @ git+https://github.com/<owner>/wss-engine.git@v0.4.1"
+pip install "wss @ git+https://github.com/<owner>/wss-engine.git@v0.5.0"
 wss init ../wss-yoursite --owner <owner>    # a new data repo, ready to run
 ```
 
@@ -35,9 +35,9 @@ wrong.
 ## Install
 
 ```
-pip install "wss @ git+https://github.com/neldivad/wss-engine.git@v0.4.1"
+pip install "wss @ git+https://github.com/neldivad/wss-engine.git@v0.5.0"
 # object-storage backend (Cloudflare R2 / S3):
-pip install "wss[object] @ git+https://github.com/neldivad/wss-engine.git@v0.4.1"
+pip install "wss[object] @ git+https://github.com/neldivad/wss-engine.git@v0.5.0"
 ```
 
 ## CLI — this is the whole interface
@@ -86,7 +86,7 @@ wss/
 └── cli.py
 ```
 
-Docs: [casing a site](docs/casing-a-site.md) ·
+Docs: [casing a site](docs/casing-a-site.md) · [credentials](docs/credentials.md) ·
 [new domain repo](docs/new-domain.md) · [registry](docs/registry.md) ·
 [capture](docs/capture.md) · [storage](docs/storage.md) ·
 [health](docs/health.md) · [derive](docs/derive.md) ·

@@ -110,3 +110,15 @@ def test_title_defaults_from_the_name(tmp_path):
     init.scaffold(tmp_path / "wss-arxiv", owner="someone")
     readme = (tmp_path / "wss-arxiv" / "README.md").read_text()
     assert "# wss-arxiv — Arxiv History" in readme
+
+
+def test_scaffold_teaches_credential_hygiene(scaffolded):
+    """A fork must not have to invent secret handling for itself."""
+    gitignore = (scaffolded / ".gitignore").read_text()
+    assert ".env.local" in gitignore and ".env\n" in gitignore
+    example = (scaffolded / ".env.example").read_text()
+    assert "WSS_CONTACT=" in example
+    assert "NEVER be committed" in example
+    assert not (scaffolded / ".env.local").exists()  # the user creates it
+    workflow = (scaffolded / ".github" / "workflows" / "capture-daily.yml").read_text()
+    assert "bearer_env" in workflow  # tells you where to add a credential

@@ -24,6 +24,7 @@ TEMPLATE_ROOT = Path(__file__).parent / "templates" / "domain"
 DOTFILES = {
     "gitattributes": ".gitattributes",
     "gitignore": ".gitignore",
+    "env.example": ".env.example",
 }
 
 # Directories a domain repo needs before its first run, each with a .gitkeep

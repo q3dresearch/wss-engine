@@ -38,6 +38,57 @@ class ContactMissing(RuntimeError):
     pass
 
 
+class CredentialMissing(RuntimeError):
+    """A source declares auth but the environment variable is not set."""
+
+
+ENV_FILE = ".env.local"
+
+
+def load_env_file(root: Path | str) -> list[str]:
+    """Load `<root>/.env.local` into the environment for local runs.
+
+    Real environment variables always win, so CI secrets can never be
+    overridden by a stray file in a checkout. The file holds credentials and
+    must never be committed — the scaffolded .gitignore excludes it.
+    """
+    path = Path(root) / ENV_FILE
+    loaded: list[str] = []
+    if not path.is_file():
+        return loaded
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.removeprefix("export ").partition("=")
+        name = name.strip()
+        value = value.strip().strip('"').strip("'")
+        if name and name not in os.environ:
+            os.environ[name] = value
+            loaded.append(name)
+    return loaded
+
+
+def auth_headers(source: Source) -> dict[str, str]:
+    """Resolve a source's declared credential from the environment.
+
+    Returns request headers only. The value is never logged, never written to
+    the manifest, and never reaches the archive — capture stores response
+    bodies, not requests.
+    """
+    bearer_env = (source.auth or {}).get("bearer_env")
+    if not bearer_env:
+        return {}
+    secret = os.environ.get(bearer_env, "").strip()
+    if not secret:
+        raise CredentialMissing(
+            f"{source.source_id} needs ${bearer_env}, which is not set. "
+            f"Put it in {ENV_FILE} for local runs (never commit it), or set it "
+            f"as a repository secret for CI."
+        )
+    return {"Authorization": f"Bearer {secret}"}
+
+
 class FetchError(RuntimeError):
     def __init__(self, reason: str):
         self.reason = reason
@@ -122,9 +173,15 @@ class Fetcher:
             return True, warning
         return rp.can_fetch(ROBOTS_AGENT, url), warning
 
-    def fetch(self, endpoint: Endpoint, etag: str = "", last_modified: str = "") -> FetchResult:
+    def fetch(
+        self,
+        endpoint: Endpoint,
+        etag: str = "",
+        last_modified: str = "",
+        extra_headers: dict[str, str] | None = None,
+    ) -> FetchResult:
         host = urllib.parse.urlsplit(endpoint.url).netloc
-        headers = {}
+        headers = dict(extra_headers or {})
         if etag:
             headers["If-None-Match"] = etag
         if last_modified:
@@ -173,6 +230,23 @@ def capture_source(
     store = storage.store_for(source, root)
     local = storage.LocalGitStore(root)  # quarantine is always local triage material
 
+    try:
+        credentials = auth_headers(source)
+    except CredentialMissing as exc:
+        # Localised failure: one missing key must not silence the whole fleet,
+        # but it still turns the run red via the error outcome.
+        fetched_at = iso_z(now_fn())
+        rows = []
+        for endpoint in source.endpoints:
+            row = _empty_row(source.source_id, endpoint.url, fetched_at) | {
+                "outcome": "error",
+                "reason": "missing_credential",
+                "warnings": str(exc).split(".")[0],
+            }
+            manifest.append_row(root, row)
+            rows.append(row)
+        return rows
+
     for endpoint in source.endpoints:
         fetched_dt = now_fn()
         fetched_at = iso_z(fetched_dt)
@@ -194,6 +268,7 @@ def capture_source(
                 endpoint,
                 etag=(prev or {}).get("etag", ""),
                 last_modified=(prev or {}).get("last_modified", ""),
+                extra_headers=credentials,
             )
         except FetchError as exc:
             row |= {"outcome": "error", "reason": exc.reason, "warnings": ";".join(warnings)}
@@ -328,6 +403,13 @@ def doctor(root: Path | str, source_id: str, log: Callable[[str], None] = print)
         return 1
     source = matches[0]
     fetcher = Fetcher(contact)
+    try:
+        credentials = auth_headers(source)
+    except CredentialMissing as exc:
+        log(str(exc))
+        return 1
+    if credentials:
+        log(f"auth      : Authorization: Bearer <${source.auth['bearer_env']}>  (value never printed)")
     log(f"source_id : {source.source_id}")
     log(f"status    : {source.status}   cadence: {source.cadence}   storage: {source.storage}")
     log(f"schema_id : {source.schema_id}   publisher: {source.publisher} ({source.publisher_tier})")
@@ -343,7 +425,7 @@ def doctor(root: Path | str, source_id: str, log: Callable[[str], None] = print)
             ok_all = False
             continue
         try:
-            res = fetcher.fetch(endpoint)
+            res = fetcher.fetch(endpoint, extra_headers=credentials)
         except FetchError as exc:
             log(f"  fetch    : FAILED — {exc.reason}")
             ok_all = False

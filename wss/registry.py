@@ -44,7 +44,16 @@ REQUIRED_KEYS = (
     "endpoints",
     "gates",
 )
-OPTIONAL_KEYS = ("notes", "tags")
+OPTIONAL_KEYS = ("notes", "tags", "auth")
+
+AUTH_KEYS = ("bearer_env",)
+ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+# Credentials belong in a header, never in a URL: the manifest records every
+# URL verbatim and forever, so a key in a query string is a permanent leak.
+SECRET_IN_URL_RE = re.compile(
+    r"[?&](api[-_]?key|apikey|access[-_]?token|auth[-_]?token|token|secret|password|key)=",
+    re.IGNORECASE,
+)
 
 # publisher.domain.series — at least three lowercase dot-separated segments.
 SOURCE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*){2,}$")
@@ -75,6 +84,7 @@ class Source:
     storage: str
     endpoints: tuple[Endpoint, ...]
     gates: dict = field(default_factory=dict)
+    auth: dict = field(default_factory=dict)
     path: Path | None = None
 
 
@@ -108,6 +118,25 @@ def _validate_gates(gates: object, problems: list[str], where: str) -> None:
         problems.append(f"{where}: max_shrink_pct must be a number between 0 and 100")
 
 
+def _validate_auth(auth: object, problems: list[str], where: str) -> None:
+    """`auth: {bearer_env: VAR}` — the *name* of an env var, never a secret."""
+    if auth is None:
+        return
+    if not isinstance(auth, dict) or not auth:
+        problems.append(f"{where}: auth must be a mapping, e.g. auth: {{bearer_env: WSS_SOME_KEY}}")
+        return
+    for key in auth:
+        if key not in AUTH_KEYS:
+            problems.append(f"{where}: unknown auth key {key!r} (allowed: {', '.join(AUTH_KEYS)})")
+    name = auth.get("bearer_env")
+    if name is not None:
+        if not isinstance(name, str) or not ENV_NAME_RE.match(name):
+            problems.append(
+                f"{where}: bearer_env must be an environment variable NAME "
+                f"(upper snake case), not a credential"
+            )
+
+
 def _validate_endpoints(endpoints: object, problems: list[str], where: str) -> list[Endpoint]:
     parsed: list[Endpoint] = []
     if not isinstance(endpoints, list) or not endpoints:
@@ -124,6 +153,12 @@ def _validate_endpoints(endpoints: object, problems: list[str], where: str) -> l
         url = ep.get("url")
         if not isinstance(url, str) or not url.startswith(("http://", "https://")):
             problems.append(f"{ep_where}: url must start with http:// or https://")
+            continue
+        if SECRET_IN_URL_RE.search(url):
+            problems.append(
+                f"{ep_where}: url looks like it carries a credential in a query parameter. "
+                f"The manifest records every URL permanently — use `auth: {{bearer_env: VAR}}` instead"
+            )
             continue
         delay = ep.get("delay_seconds", 1.0)
         if not isinstance(delay, (int, float)) or delay < 0:
@@ -190,6 +225,7 @@ def validate_entry(data: object, path: Path) -> tuple[Source | None, list[str]]:
 
     endpoints = _validate_endpoints(data["endpoints"], problems, where)
     _validate_gates(data["gates"], problems, where)
+    _validate_auth(data.get("auth"), problems, where)
 
     if problems:
         return None, problems
@@ -207,6 +243,7 @@ def validate_entry(data: object, path: Path) -> tuple[Source | None, list[str]]:
             storage=data["storage"],
             endpoints=tuple(endpoints),
             gates=dict(data["gates"]),
+            auth=dict(data.get("auth") or {}),
             path=path,
         ),
         [],
