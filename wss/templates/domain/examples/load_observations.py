@@ -50,10 +50,13 @@ def load(db_path: str) -> sqlite3.Connection:
 
 def run_queries(con: sqlite3.Connection) -> None:
     sql = (REPO / "examples" / "queries.sql").read_text(encoding="utf-8")
-    for chunk in sql.split(";"):
-        statement = "\n".join(
-            line for line in chunk.splitlines() if not line.strip().startswith("--")
-        ).strip()
+    # Strip comments BEFORE splitting: a semicolon inside a comment would
+    # otherwise cut a statement in half.
+    body = "\n".join(
+        line for line in sql.splitlines() if not line.strip().startswith("--")
+    )
+    for chunk in body.split(";"):
+        statement = chunk.strip()
         if not statement:
             continue
         cur = con.execute(statement)
