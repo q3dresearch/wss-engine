@@ -1,5 +1,6 @@
 """wss CLI — the whole interface.
 
+    wss explore <url>                             case a site before writing a registry entry
     wss init <dir> --owner <gh-owner>      scaffold a new domain repo
     wss validate                          registry schema check; CI gate
     wss plan --cadence daily --shards 20  JSON shard array for the Actions matrix
@@ -15,11 +16,15 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, capture, derive, health, init, registry
+from . import __version__, capture, derive, explore, health, init, registry
 
 
 def _err(msg: str) -> None:
     print(msg, file=sys.stderr)
+
+
+def cmd_explore(args: argparse.Namespace, root: Path) -> int:
+    return explore.explore(args.url, source_id=args.source_id)
 
 
 def cmd_init(args: argparse.Namespace, root: Path) -> int:
@@ -94,6 +99,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"wss {__version__}")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
+    p = sub.add_parser("explore", help="case a URL before writing a registry entry (writes nothing)")
+    p.add_argument("url")
+    p.add_argument(
+        "--source-id",
+        default="publisher.domain.series",
+        help="id to use in the suggested registry entry",
+    )
+
     p = sub.add_parser("init", help="scaffold a new domain repo from the engine's templates")
     p.add_argument("directory", help="where to create the repo, e.g. ../wss-arxiv")
     p.add_argument("--owner", required=True, help="GitHub owner that will host this repo and the engine")
@@ -135,6 +148,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     root = Path(args.root).resolve()
     handlers = {
+        "explore": cmd_explore,
         "init": cmd_init,
         "validate": cmd_validate,
         "plan": cmd_plan,

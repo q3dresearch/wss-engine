@@ -69,12 +69,44 @@ def register(schema_id: str, fn: Parser, version: str = "1") -> None:
     _PARSERS[schema_id] = (fn, str(version))
 
 
+ARCHIVE_SCHEMA = "archive.v1"
+
+
+def _archive_parser(body: bytes, ctx: ParseContext):
+    """Built-in parser for `schema_id: archive.v1` — document tracking.
+
+    Some sources exist to be archived and watched for change, not measured:
+    court opinions, investor-relations decks, terms of service. Their value
+    is the raw bytes plus the manifest's changed/unchanged trail.
+
+    One observation per capture keeps them visible in the observation table:
+    a jump in `content_bytes` between two dates is a silent revision, with
+    both versions already in the archive.
+    """
+    yield Observation(
+        entity_id=ctx.url,
+        metric="content_bytes",
+        value=len(body),
+        unit="bytes",
+    )
+
+
+register(ARCHIVE_SCHEMA, _archive_parser, "1")
+
+
+def _reset_builtin_parsers() -> None:
+    """Restore the built-ins after clear_parsers() (tests)."""
+    register(ARCHIVE_SCHEMA, _archive_parser, "1")
+
+
 def registered() -> dict[str, str]:
     return {schema: version for schema, (_, version) in _PARSERS.items()}
 
 
-def clear_parsers() -> None:
+def clear_parsers(keep_builtins: bool = True) -> None:
     _PARSERS.clear()
+    if keep_builtins:
+        _reset_builtin_parsers()
 
 
 def derive(

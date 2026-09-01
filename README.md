@@ -15,7 +15,7 @@ concurrent collections managed by one person, so the binding constraint is
 human attention — every design decision serves that.
 
 ```bash
-pip install "wss @ git+https://github.com/<owner>/wss-engine.git@v0.3.0"
+pip install "wss @ git+https://github.com/<owner>/wss-engine.git@v0.4.0"
 wss init ../wss-yoursite --owner <owner>    # a new data repo, ready to run
 ```
 
@@ -35,14 +35,15 @@ wrong.
 ## Install
 
 ```
-pip install "wss @ git+https://github.com/neldivad/wss-engine.git@v0.3.0"
+pip install "wss @ git+https://github.com/neldivad/wss-engine.git@v0.4.0"
 # object-storage backend (Cloudflare R2 / S3):
-pip install "wss[object] @ git+https://github.com/neldivad/wss-engine.git@v0.3.0"
+pip install "wss[object] @ git+https://github.com/neldivad/wss-engine.git@v0.4.0"
 ```
 
 ## CLI — this is the whole interface
 
 ```
+wss explore <url>                     # case a site before writing a registry entry
 wss init ../wss-arxiv --owner me      # scaffold a new domain repo
 wss validate                          # registry schema check; CI gate
 wss plan --cadence daily --shards 20  # JSON shard array for the Actions matrix
@@ -78,16 +79,39 @@ wss/
 ├── manifest.py    append-only fetch log; the provenance record
 ├── health.py      health table from manifest; auto-disable
 ├── cohort.py      frozen cohort selection (generic, not publisher-specific)
-├── derive.py      raw → long-format observation tables
+├── derive.py      raw → long-format observation tables (+ built-in archive.v1)
 ├── csvio.py       deterministic CSV conventions
+├── explore.py     recon: case a site before writing a registry entry
 ├── init.py        scaffold a domain repo from templates/
 └── cli.py
 ```
 
-Docs: [new domain repo](docs/new-domain.md) · [registry](docs/registry.md) ·
+Docs: [casing a site](docs/casing-a-site.md) ·
+[new domain repo](docs/new-domain.md) · [registry](docs/registry.md) ·
 [capture](docs/capture.md) · [storage](docs/storage.md) ·
 [health](docs/health.md) · [derive](docs/derive.md) ·
 [cohort](docs/cohort.md) · [fleet workflows](docs/fleet.md)
+
+## Adding a source, start to finish
+
+```bash
+wss explore "https://example.gov/listing"   # case it: is this even capturable?
+# save the suggested entry as registry/<source_id>.yml, still paused
+wss doctor <source_id>                      # read the raw response yourself
+# flip status: active
+```
+
+`explore` is the reconnaissance step: it honours robots.txt, classifies the
+response, maps the payload onto the observation schema (which fields could be
+`entity_id`, `observed_at`, the metrics), finds the JSON API behind a
+JavaScript page, checks whether the server supports cheap revalidation, and
+prints a starter entry with gates inferred from what it saw. It writes
+nothing. The judgment it cannot make for you — *document or state?* — is
+spelled out in [docs/casing-a-site.md](docs/casing-a-site.md).
+
+Sources that exist to be archived and watched rather than measured (court
+opinions, IR decks) use the built-in `schema_id: archive.v1` and need no
+parser at all.
 
 ## Starting a new domain repo
 
