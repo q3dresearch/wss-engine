@@ -1,17 +1,26 @@
 # Credentials
 
+(For `WSS_CONTACT`, which is identification rather than a secret, see
+[contact.md](contact.md).)
+
 Most sources need no authentication. When one does, the rule is simple:
 **the registry names an environment variable; it never holds the value.**
 
 ```yaml
 # registry/openrouter.classifications.task.yml
 auth:
-  bearer_env: WSS_OPENROUTER_KEY    # a NAME, never a key
+  bearer_env: OPENROUTER_API_KEY    # a NAME, never a key
 endpoints:
   - url: "https://openrouter.ai/api/v1/classifications/task?window=7d"
 ```
 
-That sends `Authorization: Bearer <value of $WSS_OPENROUTER_KEY>`.
+That sends `Authorization: Bearer <value of $OPENROUTER_API_KEY>`.
+
+## Naming
+
+`WSS_*` is engine configuration (`WSS_CONTACT`, `WSS_OBJECT_BUCKET`). A
+third-party credential keeps the publisher's own conventional name
+(`OPENROUTER_API_KEY`) — the key belongs to them, not to this project.
 
 ## Treat every API key as a payment credential
 
@@ -44,7 +53,7 @@ plus one line in the capture workflow's `env:` block:
 ```yaml
 env:
   WSS_CONTACT: ${{ secrets.WSS_CONTACT }}
-  WSS_OPENROUTER_KEY: ${{ secrets.WSS_OPENROUTER_KEY }}
+  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 ```
 
 This is the **one** workflow edit a new *credential* requires. Adding a

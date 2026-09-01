@@ -99,8 +99,11 @@ def contact_from_env() -> str:
     contact = os.environ.get("WSS_CONTACT", "").strip()
     if not contact:
         raise ContactMissing(
-            "WSS_CONTACT is not set. Captures run with an identifiable "
-            "user-agent; set it to an email a publisher can reach you at."
+            "WSS_CONTACT is not set. Captures identify themselves in the "
+            "User-Agent so a publisher can reach whoever is running them. "
+            "A repository URL is the best default (no personal data, and it "
+            "leads to an issue tracker), e.g. "
+            "https://github.com/<owner>/<repo> — an email also works."
         )
     return contact
 
