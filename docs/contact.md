@@ -24,17 +24,21 @@ It is not bureaucracy, and it buys three concrete things:
 
 ## It does not have to be an email
 
-**A repository URL is the better default**, and is what the scaffold now
-suggests:
+**A GitHub identity plus repo URL is the better default**, and is what the
+scaffold now suggests:
 
 ```
-WSS_CONTACT=https://github.com/<owner>/<repo>
+WSS_CONTACT=<username> +https://github.com/<owner>/<repo>
 ```
 
-It identifies exactly who is running the capture, leads to an issue tracker
-where anyone can complain, and contains **no personal data**. An email works
-too, and is more direct — use one if you would rather be reachable without a
-GitHub account in the loop. A dedicated alias beats a personal address.
+It names exactly who is running the capture, leads to an issue tracker where
+anyone can complain, and contains **no personal data**.
+
+An email works too and is more direct, but understand what it means: the
+contact string is **transmitted to every publisher you capture from** and
+lands in their server logs. It is not published in the repo — it lives only
+in `.env.local` and CI secrets — but it is disclosed to each publisher. If
+you use an email, prefer a role address over a personal one.
 
 What does *not* work is anything unreachable: a GitHub `noreply` address
 receives no mail, and a fake value like `you@example.com` is worse than
