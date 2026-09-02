@@ -26,6 +26,12 @@ plan ──▶ capture (matrix over shards) ──▶ commit (rebase-retry)
 ## Rules of thumb
 
 - **Matrix cap is 256 jobs per run** — shard to ~20 jobs of ~50 sources each.
+- **Shard count is a politeness decision, not only a speed one.** The per-host
+  delay is enforced per process, so N shards means N runners can hit the same
+  host simultaneously with no spacing between them. Before raising `SHARDS`,
+  check which hosts would then run concurrently — a repo whose sources cluster
+  on one publisher (especially a volunteer-run one) should stay on few shards,
+  or one. Parallelism buys nothing on a five-source repo anyway.
 - **Schedule off the hour** (`10 22 * * *`): GitHub's cron scheduler is
   contended at `:00`.
 - One `concurrency` group shared by every repo-writing workflow
