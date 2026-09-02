@@ -1,29 +1,26 @@
 # wss — web snapshots
 
-The engine behind `wss-*` data repos: **scheduled GitHub Actions that scrape
-or parse any observable web page or API, every day, forever.**
+**Scheduled GitHub Actions that capture any observable web page or API, every
+day, forever.** The engine behind `wss-*` data repos.
 
 It archives responses **verbatim**, keeps an append-only manifest as the
 provenance record, and derives point-in-time observation tables from that
 archive — never from the live web. ("Snapshots" as in captured bytes, not
 screenshots: HTML, JSON, CSV, whatever the page returns.)
 
-The engine holds **no data, ever**. A *domain repo* (`wss-hugging-face`,
-`wss-arxiv`, …) holds a registry of sources, runs this CLI from a handful of
-scheduled workflows, and commits what comes back. The design target is 1,000+
-concurrent collections managed by one person, so the binding constraint is
-human attention — every design decision serves that.
-
-```bash
-pip install "wss @ git+https://github.com/<owner>/wss-engine.git@v0.5.3"
-wss init ../wss-yoursite --owner <owner>    # a new data repo, ready to run
-```
+The engine holds **no data, ever**. A *domain repo*
+([wss-hugging-face](https://github.com/neldivad/wss-hugging-face),
+[wss-openrouter](https://github.com/neldivad/wss-openrouter),
+[wss-cloud-footprint](https://github.com/neldivad/wss-cloud-footprint)) holds a
+registry of sources, runs this CLI from a few scheduled workflows, and commits
+what comes back. The design target is 1,000+ collections managed by one
+person, so the binding constraint is human attention.
 
 ## The rule everything hangs on
 
 **There is never a workflow per source.** A registry drives the fleet: a few
-scheduled workflows read it, shard the active sources across a job matrix,
-and each job walks its slice.
+scheduled workflows read it, shard the active sources across a job matrix, and
+each job walks its slice.
 
 - Adding a collection is **one new file** (`registry/<source_id>.yml`).
 - Removing one is a status change.
@@ -32,128 +29,79 @@ and each job walks its slice.
 If a change requires editing a workflow to add a data source, the design is
 wrong.
 
-## Install
-
-```
-pip install "wss @ git+https://github.com/neldivad/wss-engine.git@v0.5.3"
-# object-storage backend (Cloudflare R2 / S3):
-pip install "wss[object] @ git+https://github.com/neldivad/wss-engine.git@v0.5.3"
-```
-
-## CLI — this is the whole interface
-
-```
-wss explore <url>                     # case a site before writing a registry entry
-wss init ../wss-arxiv --owner me      # scaffold a new domain repo
-wss validate                          # registry schema check; CI gate
-wss plan --cadence daily --shards 20  # JSON shard array for the Actions matrix
-wss capture --cadence daily --shard 3/20
-wss health                            # rebuild health table, apply auto-disable
-wss derive --since 2026-08            # raw → observation tables
-wss doctor <source_id>                # dry-run one source, print raw response
-```
-
-All commands take `--root` (default: current directory) pointing at the data
-root — the domain repo checkout.
-
 ## The capture contract — non-negotiable
 
-1. Raw response bytes archived verbatim; nothing parsed at capture time.
-2. Every fetch appends a manifest row, including unchanged ones — dedupe
+1. Raw bytes archived verbatim; **nothing parsed at capture time**, so a
+   parser bug is fixed by re-parsing history, never by re-fetching.
+2. Every fetch appends a manifest row, **including unchanged ones** — dedupe
    skips the file write, never the observation.
 3. Failed gate → quarantine; bad responses never enter the archive.
 4. Failures are loud: non-zero exit, red build.
-5. Identifiable user-agent (`WSS_CONTACT`), robots.txt honoured,
-   per-host delay, 3 retries with exponential backoff.
+5. Identifiable user-agent, robots.txt honoured, per-host delay, 3 retries.
 
-Details: [docs/capture.md](docs/capture.md).
-
-## Layout
-
-```
-wss/
-├── registry.py    load, validate, select active, deterministic sharding
-├── capture.py     fetch → gate → hash → dedupe → write → manifest; doctor
-├── gates.py       validation rules
-├── storage.py     LocalGitStore | ObjectStore — one interface, same paths
-├── manifest.py    append-only fetch log; the provenance record
-├── health.py      health table from manifest; auto-disable
-├── cohort.py      frozen cohort selection (generic, not publisher-specific)
-├── derive.py      raw → long-format observation tables (+ built-in archive.v1)
-├── csvio.py       deterministic CSV conventions
-├── explore.py     recon: case a site before writing a registry entry
-├── init.py        scaffold a domain repo from templates/
-└── cli.py
-```
-
-Docs: [casing a site](docs/casing-a-site.md) · [credentials](docs/credentials.md) ·
-[contact](docs/contact.md) ·
-[new domain repo](docs/new-domain.md) · [registry](docs/registry.md) ·
-[capture](docs/capture.md) · [storage](docs/storage.md) ·
-[health](docs/health.md) · [derive](docs/derive.md) ·
-[cohort](docs/cohort.md) · [fleet workflows](docs/fleet.md)
-
-## Adding a source, start to finish
+## Using it
 
 ```bash
-wss explore "https://example.gov/listing"   # case it: is this even capturable?
+pip install "wss @ git+https://github.com/neldivad/wss-engine.git@v0.5.3"
+
+wss explore <url>                     # case a site before writing anything
+wss init ../wss-yoursite --owner me   # scaffold a domain repo
+wss validate                          # registry schema check; CI gate
+wss plan --cadence daily --shards 20  # JSON shard array for the Actions matrix
+wss capture --cadence daily --shard 3/20
+wss health                            # health table, auto-disable
+wss derive                            # raw → observation tables
+wss doctor <source_id>                # dry-run one source, print raw bytes
+```
+
+Adding a source, start to finish:
+
+```bash
+wss explore "https://example.gov/listing"   # is this even capturable?
 # save the suggested entry as registry/<source_id>.yml, still paused
 wss doctor <source_id>                      # read the raw response yourself
 # flip status: active
 ```
 
-`explore` is the reconnaissance step: it honours robots.txt, classifies the
-response, maps the payload onto the observation schema (which fields could be
-`entity_id`, `observed_at`, the metrics), finds the JSON API behind a
-JavaScript page, checks whether the server supports cheap revalidation, and
-prints a starter entry with gates inferred from what it saw. It writes
-nothing. The judgment it cannot make for you — *document or state?* — is
-spelled out in [docs/casing-a-site.md](docs/casing-a-site.md).
+`explore` honours robots.txt, classifies the response, maps the payload onto
+the observation schema, finds the JSON API behind a JavaScript page, and
+prints a starter entry with gates inferred from what it saw. The judgment it
+cannot make for you — *document or state?* — is in
+[docs/casing-a-site.md](docs/casing-a-site.md). Sources that exist to be
+archived and watched rather than measured use the built-in
+`schema_id: archive.v1` and need no parser.
 
-Sources that exist to be archived and watched rather than measured (court
-opinions, IR decks) use the built-in `schema_id: archive.v1` and need no
-parser at all.
+**Never fork a domain repo** to start a new one; `wss init` generates a clean
+one pinned to the engine version that made it.
 
-## Starting a new domain repo
+## Docs
 
-`wss init <dir> --owner <gh-owner>` writes a complete, immediately
-valid domain repo — workflows, licences, `.gitattributes` (before any CSV
-exists), an example registry entry and parser. **Never fork an existing
-domain repo**; forks inherit the wrong parsers and drift from the template.
-See [docs/new-domain.md](docs/new-domain.md).
-
-Examples: a [registry entry](examples/registry/example.web.stats.yml), a
-[parser](examples/parsers/example_parser.py), and the canonical
-[capture workflow](examples/workflows/capture-daily.yml) a domain repo copies.
-
-## Sandbox
-
-`python sandbox/run.py` generates ~4 months of synthetic captures in the real
-archive shape with ground truth planted — an incumbent decaying, a challenger
-accelerating, a plateau, one faded and dead — then derives, runs
-`sandbox/analysis.sql`, and **asserts the analysis recovers the planted
-truth**. Analysis gets built and tested before a single real byte exists.
+[casing a site](docs/casing-a-site.md) · [new domain repo](docs/new-domain.md)
+· [registry](docs/registry.md) · [capture](docs/capture.md) ·
+[credentials](docs/credentials.md) · [contact](docs/contact.md) ·
+[storage](docs/storage.md) · [health](docs/health.md) ·
+[derive](docs/derive.md) · [cohort](docs/cohort.md) ·
+[fleet workflows](docs/fleet.md)
 
 ## Tests
 
+```bash
+pip install -e ".[dev]" && pytest
+python sandbox/run.py
 ```
-pip install -e ".[dev]"
-pytest
-```
 
-The self-test (`tests/test_selftest.py`) drives every outcome —
-first_capture, unchanged, changed, quarantined, error, skipped, plus the
-heartbeat — against a local fixture server on an OS-assigned port, and proves
-the fleet path (plan → deterministic shards → capture) with three dummy
-registry entries. No network leaves the machine.
+The self-test drives every outcome — first_capture, unchanged, changed,
+quarantined, error, skipped, plus the heartbeat — against a local fixture
+server on an OS-assigned port, and proves the fleet path with three dummy
+registry entries. No network leaves the machine. The sandbox generates four
+months of synthetic captures with ground truth planted (an incumbent decaying,
+a challenger accelerating, a plateau, one dead) and **asserts the analysis
+recovers it**, so analysis is testable before real data exists.
 
-## Prior art this borrows from
-
-Singer taps/targets and Meltano (config-as-fleet), dbt (derived layer), DCAT
-(catalog vocabulary, for the later serving layer), SCD Type 2 (the formal
-name for the bitemporal history pattern).
+Prior art: Singer/Meltano (config-as-fleet), dbt (derived layer), DCAT
+(catalog vocabulary), SCD Type 2 (the bitemporal pattern).
 
 ## Licence
 
-MIT (engine code). Domain repos license their *data* separately —
-see the two-file pattern (`LICENSE` + `LICENSE-DATA`) in any domain repo.
+MIT. Domain repos license their *data* separately — see the two-file pattern
+(`LICENSE` + `LICENSE-DATA`) in any of them.
