@@ -13,7 +13,7 @@ classifies what came back, maps the payload onto the observation schema,
 hunts for leads, and prints a starter registry entry with gates inferred from
 what it actually saw.
 
-## The five questions, in order
+## The six questions, in order
 
 ### 1. Is it a document or a state?
 
@@ -94,6 +94,37 @@ about what failure looks like, and they protect the archive for years.
   overnight; if the bytes did, that is an outage wearing a `200 OK`.
 - `expect_status: [200, 404]` — when a 404 is *data* (a tracked entity died)
   rather than a failure.
+
+### 6. Is someone already selling it?
+
+Ask this **before** probing, not after. It is cheap and it is the question
+that has killed the most candidates.
+
+Perishable state that is commercially valuable is usually already held by
+someone whose access beats an HTTP request — merchant feeds, an affiliate
+API, a data partnership. You will not out-collect them by being diligent.
+
+| candidate | occupant | the advantage you cannot match |
+| --- | --- | --- |
+| datacenter GPU pricing | SemiAnalysis | proprietary channel checks |
+| browser extension listings | Chrome-Stats | daily snapshots, removed listings, CSV export |
+| PC component pricing | PCPartPicker | affiliate/merchant feeds, a decade of accumulation |
+
+Three in a row, all the same shape, so state it as a rule:
+
+**If the perishable state is a price, assume it is taken.** Check before you
+probe. Prices are the most commercially valuable state there is, therefore
+the most contested, therefore the worst ground for an unfunded fleet.
+
+The counter-rule is where the wins came from: **capture what is valuable but
+not yet monetisable.** Nobody sells "which arXiv papers ship into production"
+or "what share of proposed generating capacity dies before it is built",
+which is exactly why those were available.
+
+When a price is genuinely the thing you want, look for its **physical
+antecedent** instead — the permit, the licence, the quota, the berth, the
+claim. Authorities publish those, rarely archive them, and have no commercial
+interest in the series.
 
 ## Capture-only sources
 

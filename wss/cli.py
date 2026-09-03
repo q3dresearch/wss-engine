@@ -8,6 +8,7 @@
     wss health                            rebuild health table, apply auto-disable
     wss derive --since 2026-08            raw → observation tables
     wss doctor <source_id>               dry-run one source, print raw response
+    wss sources                          write SOURCES.md: every URL, licence and last capture
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, capture, derive, explore, health, init, registry
+from . import __version__, capture, derive, explore, health, init, registry, sources
 
 
 def _err(msg: str) -> None:
@@ -83,6 +84,13 @@ def cmd_health(args: argparse.Namespace, root: Path) -> int:
     return 0
 
 
+def cmd_sources(args: argparse.Namespace, root: Path) -> int:
+    path = sources.write(root)
+    n = len(registry.load_registry(root))
+    print(f"{path.name} written for {n} source(s)")
+    return 0
+
+
 def cmd_derive(args: argparse.Namespace, root: Path) -> int:
     stats = derive.derive(root, since=args.since, parser_modules=args.parsers, log=print)
     print(f"derived {stats['rows']} observation(s) into {len(stats['partitions'])} partition(s)")
@@ -128,6 +136,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--threshold", type=int, default=health.AUTO_DISABLE_THRESHOLD)
     p.add_argument("--dry-run", action="store_true", help="compute health but do not flip statuses")
 
+    sub.add_parser("sources", help="write SOURCES.md — every source URL, licence and last capture")
+
     p = sub.add_parser("derive", help="rebuild observation tables from the raw archive")
     p.add_argument("--since", help="only rebuild partitions from this month on, e.g. 2026-08")
     p.add_argument(
@@ -160,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         "health": cmd_health,
         "derive": cmd_derive,
         "doctor": cmd_doctor,
+        "sources": cmd_sources,
     }
     try:
         return handlers[args.cmd](args, root)

@@ -85,6 +85,7 @@ class Source:
     endpoints: tuple[Endpoint, ...]
     gates: dict = field(default_factory=dict)
     auth: dict = field(default_factory=dict)
+    notes: str = ""
     path: Path | None = None
 
 
@@ -244,6 +245,7 @@ def validate_entry(data: object, path: Path) -> tuple[Source | None, list[str]]:
             endpoints=tuple(endpoints),
             gates=dict(data["gates"]),
             auth=dict(data.get("auth") or {}),
+            notes=str(data.get("notes") or "").strip(),
             path=path,
         ),
         [],
