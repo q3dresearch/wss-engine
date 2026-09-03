@@ -1,7 +1,20 @@
-# wss — web snapshots
+<h1 align="center">wss-engine</h1>
 
-**Scheduled GitHub Actions that capture any observable web page or API, every
-day, forever.** The engine behind `wss-*` data repos.
+<p align="center">
+  <strong>Scheduled GitHub Actions that capture any web page or API — every day, forever</strong>
+</p>
+
+<div align="center">
+
+  <a href="https://github.com/neldivad/wss-engine/actions/workflows/test.yml"><img alt="tests status" src="https://img.shields.io/github/actions/workflow/status/neldivad/wss-engine/test.yml?label=tests&style=flat-square"></a>
+  <a href="https://github.com/neldivad/wss-engine/blob/main/LICENSE"><img alt="licence" src="https://img.shields.io/github/license/neldivad/wss-engine?style=flat-square"></a>
+  <a href="https://github.com/neldivad/wss-engine"><img alt="stars" src="https://img.shields.io/github/stars/neldivad/wss-engine?style=social"></a>
+
+</div>
+
+<p align="center">
+  <sub>fleet: <strong>engine</strong> · <a href="https://github.com/neldivad/wss-hugging-face">hugging face</a> · <a href="https://github.com/neldivad/wss-openrouter">openrouter</a> · <a href="https://github.com/neldivad/wss-cloud-footprint">cloud footprint</a> · <a href="https://github.com/neldivad/wss-mining-pipeline">mining</a></sub>
+</p>
 
 It archives responses **verbatim**, keeps an append-only manifest as the
 provenance record, and derives point-in-time observation tables from that
@@ -52,6 +65,7 @@ wss capture --cadence daily --shard 3/20
 wss health                            # health table, auto-disable
 wss derive                            # raw → observation tables
 wss doctor <source_id>                # dry-run one source, print raw bytes
+wss sources                           # write SOURCES.md: every URL, licence, last capture
 ```
 
 Adding a source, start to finish:
