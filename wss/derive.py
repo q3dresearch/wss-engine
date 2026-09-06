@@ -189,6 +189,22 @@ def derive(
             f"— pass --parsers <module> (registered: {sorted(registered()) or 'none'})"
         )
 
+    # A source may be looked at many times and stay unchanged, which writes one
+    # manifest row per look against the same raw_ref. Where the parser takes
+    # observed_at from the payload rather than the fetch time — which the screen
+    # asks it to — those looks produce byte-identical observations. Collapse
+    # them to the earliest capture that saw the state.
+    #
+    # Only exact repeats collapse. Two rows sharing a key but disagreeing on
+    # value are a parser problem and are left in place to be noticed.
+    deduped: dict[tuple, dict] = {}
+    for row in obs_rows:
+        key = tuple(row[c] for c in OBS_COLUMNS if c != "captured_at")
+        prior = deduped.get(key)
+        if prior is None or row["captured_at"] < prior["captured_at"]:
+            deduped[key] = row
+    obs_rows = list(deduped.values())
+
     by_month: dict[str, list[dict]] = {}
     for row in obs_rows:
         by_month.setdefault(row["observed_at"][:7], []).append(row)

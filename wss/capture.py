@@ -12,6 +12,7 @@ The contract:
 from __future__ import annotations
 
 import hashlib
+import re
 import json
 import os
 import time
@@ -325,7 +326,7 @@ def capture_source(
             ref = storage.quarantine_path(source.source_id, fetched_dt, sha, ext)
             local.write(ref, res.body)
             row |= {"outcome": "quarantined", "raw_ref": ref, "reason": gate.reason}
-        elif prev is not None and prev.get("content_sha256") == sha:
+        elif prev is not None and _same_content(source, store, prev, res.body, sha):
             row |= {"outcome": "unchanged", "raw_ref": prev["raw_ref"]}
         else:
             ref = storage.raw_path(source.source_id, fetched_dt, sha, ext)
@@ -470,3 +471,35 @@ def _preview(body: bytes, limit: int = 1200) -> str:
         return json.dumps(parsed, indent=2)[:limit]
     except (ValueError, UnicodeDecodeError):
         return body[:limit].decode("utf-8", errors="replace")
+
+
+def _dedupe_key(body: bytes, patterns: tuple[str, ...]) -> str:
+    """Hash of the body with volatile markup removed.
+
+    Some publishers stamp a fresh random id into every render — Drupal emits
+    `js-view-dom-id-<hash>` on each request — so identical data produces a
+    different sha every time. Left alone, dedupe never fires: storage grows
+    without bound and `outcome: changed` stops meaning anything.
+
+    Stripping happens *only* here. The bytes written to the archive and the
+    content_sha256 recorded against them are always the untouched response.
+    """
+    text = body.decode("utf-8", "replace")
+    for pat in patterns:
+        text = re.sub(pat, "", text)
+    return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
+
+
+def _same_content(source, store, prev, body: bytes, sha: str) -> bool:
+    """Did the payload really not change, ignoring declared volatile markup?"""
+    if prev.get("content_sha256") == sha:
+        return True
+    if not source.dedupe_ignore or not prev.get("raw_ref"):
+        return False
+    try:
+        before = store.read(prev["raw_ref"])
+    except Exception:
+        return False
+    return (_dedupe_key(before, source.dedupe_ignore)
+            == _dedupe_key(body, source.dedupe_ignore))
+

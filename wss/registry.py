@@ -18,7 +18,7 @@ import yaml
 CADENCE_HOURS = {"hourly": 1, "daily": 24, "weekly": 168, "monthly": 720}
 STATUSES = ("active", "paused", "auto_disabled", "retired")
 PUBLISHER_TIERS = ("first_party", "primary", "redistribution")
-PERSONAL_DATA = ("none", "present")
+PERSONAL_DATA = ("none", "parties_only", "present")
 STORAGE_BACKENDS = ("git", "object")
 
 GATE_KEYS = (
@@ -44,7 +44,7 @@ REQUIRED_KEYS = (
     "endpoints",
     "gates",
 )
-OPTIONAL_KEYS = ("notes", "tags", "auth")
+OPTIONAL_KEYS = ("notes", "tags", "auth", "dedupe_ignore")
 
 AUTH_KEYS = ("bearer_env",)
 ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -86,6 +86,9 @@ class Source:
     gates: dict = field(default_factory=dict)
     auth: dict = field(default_factory=dict)
     notes: str = ""
+    # Regexes stripped from the body *only* to decide changed vs unchanged.
+    # The stored bytes and content_sha256 stay verbatim.
+    dedupe_ignore: tuple[str, ...] = ()
     path: Path | None = None
 
 
@@ -223,6 +226,26 @@ def validate_entry(data: object, path: Path) -> tuple[Source | None, list[str]]:
 
     if data["personal_data"] == "present":
         problems.append(f"{where}: personal_data 'present' is rejected — this fleet does not collect personal data")
+    elif data["personal_data"] == "parties_only" and not str(data.get("notes") or "").strip():
+        # The narrow exemption is only meaningful if the reasoning is recorded:
+        # who the parties are, and why deleting their names leaves the dataset
+        # intact. Without that, this is 'present' with a friendlier label.
+        problems.append(
+            f"{where}: personal_data 'parties_only' requires notes stating who the "
+            f"named parties are and why the derived tables do not carry them"
+        )
+
+    ignore = data.get("dedupe_ignore")
+    if ignore is not None:
+        if not isinstance(ignore, list) or not all(isinstance(x, str) for x in ignore):
+            problems.append(f"{where}: dedupe_ignore must be a list of regex strings")
+        else:
+            for pat in ignore:
+                try:
+                    re.compile(pat)
+                except re.error as exc:
+                    problems.append(f"{where}: dedupe_ignore pattern {pat!r} is not a "
+                                    f"valid regex — {exc}")
 
     endpoints = _validate_endpoints(data["endpoints"], problems, where)
     _validate_gates(data["gates"], problems, where)
@@ -246,6 +269,7 @@ def validate_entry(data: object, path: Path) -> tuple[Source | None, list[str]]:
             gates=dict(data["gates"]),
             auth=dict(data.get("auth") or {}),
             notes=str(data.get("notes") or "").strip(),
+            dedupe_ignore=tuple(data.get("dedupe_ignore") or ()),
             path=path,
         ),
         [],

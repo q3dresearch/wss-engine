@@ -21,7 +21,7 @@ publisher: Hugging Face
 publisher_tier: first_party             # first_party | primary | redistribution
 destroys_own_history: true              # false → do not capture; publisher archives it
 licence: "…"                            # terms the captured data is under
-personal_data: none                     # none | present → present is rejected
+personal_data: none                     # none | parties_only | present
 
 storage: git                            # git | object
 endpoints:
@@ -48,8 +48,32 @@ beyond shape checking:
 
 - the filename must be `<source_id>.yml` and `source_id` must be
   `publisher.domain.series` (lowercase, ≥ 3 dot-separated segments)
+- `dedupe_ignore` is an optional list of regexes stripped from the body **only**
+  when deciding changed vs unchanged. Use it when a publisher stamps a random
+  id into every render (Drupal's `js-view-dom-id-<hash>`, build ids, nonces),
+  which otherwise defeats dedupe entirely — storage grows without bound and
+  `outcome: changed` stops meaning anything. Archived bytes and
+  `content_sha256` are always the untouched response.
 - `personal_data: present` is rejected outright — this fleet does not collect
   personal data
+- `personal_data: parties_only` is a narrow exemption for public proceedings,
+  and it **requires `notes`** saying who the named parties are and why the
+  derived tables do not carry them. Use it only when all of these hold:
+  - names appear solely as **parties to a public proceeding** — petitioners,
+    applicants, respondents — not as the subject of the dataset
+  - the authority publishes them as an inseparable part of that proceeding
+  - no contact details, identifiers or sensitive attributes are present
+  - **deleting the name column leaves the dataset's purpose intact**, and the
+    derived tables therefore carry no such column
+
+  That last line is the test. If removing the names destroys the point of the
+  dataset, the dataset is about people: use `present` and do not capture it.
+  A register of who holds a licence fails the test; a docket of petitions
+  filed against a regulation passes it.
+
+  Redaction is not a route back in. If the record carries a case number that
+  resolves to the party on the publisher's own site, a placeholder buys no
+  privacy and costs a field — declare what is true instead.
 - `destroys_own_history: false` on an **active** source is rejected: the
   publisher archives its own history, so capture adds nothing. Keeping the
   entry as `paused`/`retired` is allowed (it documents the decision)

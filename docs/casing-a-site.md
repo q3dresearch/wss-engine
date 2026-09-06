@@ -110,13 +110,43 @@ behaviour:
 | CAL FIRE (hosted feature service) | one hash — stable by luck, not by contract |
 | Skogsstyrelsen (ArcGIS Server) | **three different hashes**, identical byte count |
 
-The fix is to make the order explicit — `orderByFields` on ArcGIS, `ORDER BY`
+**Rendered HTML has a second version of this.** Drupal stamps a random
+`js-view-dom-id-<hash>` into every view container on every request, and other
+CMSs emit build ids, nonces or render timestamps the same way. Identical data,
+identical byte count, different sha — and it will not show up in a diff of the
+*visible* text, only in a diff of the markup. FDA's animal-feed consultation
+page does exactly this, four times per render.
+
+For that case use `dedupe_ignore` in the registry: a list of regexes stripped
+from the body **only** to decide changed vs unchanged. The archived bytes and
+`content_sha256` stay verbatim, so provenance is untouched.
+
+```yaml
+dedupe_ignore:
+  - "js-view-dom-id-[0-9a-f]+"
+```
+
+The fix for ordering is to make the order explicit — `orderByFields` on ArcGIS, `ORDER BY`
 or a sort parameter elsewhere — and to sort on a **business key** rather than a
 surrogate id, for the same reason partitions do.
 
 Stability by luck is worth writing down as luck. A publisher can change its
 default ordering without announcing anything, and nothing else in the pipeline
 would flag it.
+
+### 5c. Is the short list just page one?
+
+A view showing only recent rows is indistinguishable from a rolling window
+until you check. FDA's final-rules inventory returns **51 rows back to 2014**
+and describes itself as covering everything "since 1994" — the gap reads as
+evidence of deletion. Add `showAll=true` and it returns **609 rows back to
+1975**. Nothing perishes; it paginates.
+
+Look for a pagination or show-all parameter before concluding a source
+destroys its history. The same test against the petitions queue on the same
+host returns 32 rows either way, which is what confirms *that* one is genuinely
+only the open queue. Two sources, one server, identical appearance, opposite
+verdicts.
 
 ### 6. Is someone already selling it?
 
@@ -165,6 +195,18 @@ capture so the document stays queryable in the observation table — a size
 shift between two dates is a revision, with both versions already on disk.
 
 ## Then
+
+The questions above decide whether a source *can* be captured. They do not
+decide whether it is **worth** capturing, and that is a separate loop: probe the
+data shape, write the research questions down *before* charting anything, try to
+answer them, and note what the data cannot reach. Most candidates die at that
+third step, which is the cheapest place for them to die.
+
+A source that passes every question here and answers no interesting question is
+still a source you should not build.
+
+Once it has earned a build:
+
 
 1. Save the suggested entry as `registry/<source_id>.yml`, leaving it
    `paused`, and fill in the TODOs (publisher, licence, notes).
