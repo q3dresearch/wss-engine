@@ -17,7 +17,10 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, capture, derive, explore, health, init, registry, sources
+from . import (
+    __version__, capture, datapage, derive, explore, health, init, registry,
+    sources,
+)
 
 
 def _err(msg: str) -> None:
@@ -91,6 +94,12 @@ def cmd_sources(args: argparse.Namespace, root: Path) -> int:
     return 0
 
 
+def cmd_datapage(args: argparse.Namespace, root: Path) -> int:
+    path = datapage.write(root, args.repo_url or "")
+    print(f"{path} written — enable Pages (deploy from main, /docs) to publish it")
+    return 0
+
+
 def cmd_derive(args: argparse.Namespace, root: Path) -> int:
     stats = derive.derive(root, since=args.since, parser_modules=args.parsers, log=print)
     print(f"derived {stats['rows']} observation(s) into {len(stats['partitions'])} partition(s)")
@@ -138,6 +147,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("sources", help="write SOURCES.md — every source URL, licence and last capture")
 
+    p = sub.add_parser(
+        "datapage",
+        help="write docs/index.html with schema.org Dataset markup, so the "
+             "dataset is discoverable by Google Dataset Search",
+    )
+    p.add_argument(
+        "--repo-url",
+        help="canonical repository URL, e.g. https://github.com/<owner>/<repo>",
+    )
+
     p = sub.add_parser("derive", help="rebuild observation tables from the raw archive")
     p.add_argument("--since", help="only rebuild partitions from this month on, e.g. 2026-08")
     p.add_argument(
@@ -171,6 +190,7 @@ def main(argv: list[str] | None = None) -> int:
         "derive": cmd_derive,
         "doctor": cmd_doctor,
         "sources": cmd_sources,
+        "datapage": cmd_datapage,
     }
     try:
         return handlers[args.cmd](args, root)

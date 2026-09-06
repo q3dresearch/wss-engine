@@ -13,7 +13,7 @@ classifies what came back, maps the payload onto the observation schema,
 hunts for leads, and prints a starter registry entry with gates inferred from
 what it actually saw.
 
-## The six questions, in order
+## The questions, in order
 
 ### 1. Is it a document or a state?
 
@@ -94,6 +94,29 @@ about what failure looks like, and they protect the archive for years.
   overnight; if the bytes did, that is an outage wearing a `200 OK`.
 - `expect_status: [200, 404]` — when a 404 is *data* (a tracked entity died)
   rather than a failure.
+
+### 5b. Does the same request return the same bytes?
+
+Fetch the identical URL three times and compare hashes. If they differ while
+the data has not changed, **dedup is broken and you will not notice**: every
+capture writes a fresh copy of the archive, storage grows without bound, and
+`outcome: changed` stops meaning anything.
+
+The usual cause is row order. Two ArcGIS services, same query shape, opposite
+behaviour:
+
+| service | three identical fetches |
+| --- | --- |
+| CAL FIRE (hosted feature service) | one hash — stable by luck, not by contract |
+| Skogsstyrelsen (ArcGIS Server) | **three different hashes**, identical byte count |
+
+The fix is to make the order explicit — `orderByFields` on ArcGIS, `ORDER BY`
+or a sort parameter elsewhere — and to sort on a **business key** rather than a
+surrogate id, for the same reason partitions do.
+
+Stability by luck is worth writing down as luck. A publisher can change its
+default ordering without announcing anything, and nothing else in the pipeline
+would flag it.
 
 ### 6. Is someone already selling it?
 

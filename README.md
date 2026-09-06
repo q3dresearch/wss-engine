@@ -55,7 +55,7 @@ wrong.
 ## Using it
 
 ```bash
-pip install "wss @ git+https://github.com/neldivad/wss-engine.git@v0.5.3"
+pip install "wss @ git+https://github.com/neldivad/wss-engine.git@v0.5.5"
 
 wss explore <url>                     # case a site before writing anything
 wss init ../wss-yoursite --owner me   # scaffold a domain repo
@@ -66,6 +66,7 @@ wss health                            # health table, auto-disable
 wss derive                            # raw → observation tables
 wss doctor <source_id>                # dry-run one source, print raw bytes
 wss sources                           # write SOURCES.md: every URL, licence, last capture
+wss datapage                          # write docs/index.html with schema.org Dataset markup
 ```
 
 Adding a source, start to finish:
@@ -87,6 +88,48 @@ archived and watched rather than measured use the built-in
 
 **Never fork a domain repo** to start a new one; `wss init` generates a clean
 one pinned to the engine version that made it.
+
+## Publishing a dataset so it can be found
+
+A repository nobody links to is invisible, and a README cannot fix it:
+**GitHub sanitises `<script>` out of rendered markdown**, and Google Dataset
+Search discovers datasets *only* through a `schema.org/Dataset` JSON-LD block.
+`wss datapage` writes that block into `docs/index.html`, generated from
+`CITATION.cff`, the registry and the manifest — so it is a build artifact, not
+a page to maintain.
+
+Four steps, once per repo. Only the first is automated.
+
+```bash
+wss datapage --repo-url https://github.com/<owner>/<repo>
+git add CITATION.cff docs/ && git commit && git push
+```
+
+1. **Write the abstract.** `CITATION.cff` ships with a `TODO:` placeholder and
+   `datapage` refuses to publish it, falling back to generic text. The abstract
+   is the field that decides whether anyone cites you — say what is captured
+   and why the history would otherwise be lost. Replace the scaffold keywords
+   too: name the actual publishers and places, because retrieval grounds on
+   entities and `open-data, dataset` names none.
+2. **Settings → Pages → deploy from `main`, `/docs`.** The generated
+   `docs/.nojekyll` keeps Jekyll from touching the file.
+3. **Connect Zenodo *before* tagging.** zenodo.org → profile menu → GitHub →
+   *Sync now* → toggle the repo on. Zenodo only archives releases created
+   **after** the webhook exists; tag first and that release is invisible to it.
+4. **Tag an annual release**, then paste the **concept DOI** — not the version
+   DOI — into `CITATION.cff` as `doi:`, rerun `wss datapage`, and push. The
+   concept DOI always resolves to the latest release, so it never goes stale.
+
+**Then fix the resource type.** Zenodo's GitHub integration assumes it is
+archiving software and types the record `Software`, ignoring `type: dataset`
+in `CITATION.cff`. Open the record → Edit → *Resource type* → **Dataset** →
+Publish. Metadata stays editable after publication; the record itself is
+permanent and cannot be deleted, so check `personal_data` across the registry
+before the first release.
+
+Worth verifying once the DOI exists: `api.datacite.org/dois/<doi>` should
+report `state: findable` and `resourceTypeGeneral: Dataset`. That is the gate
+for every index that harvests DataCite.
 
 ## Docs
 
