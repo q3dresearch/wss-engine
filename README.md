@@ -98,7 +98,7 @@ Search discovers datasets *only* through a `schema.org/Dataset` JSON-LD block.
 `CITATION.cff`, the registry and the manifest — so it is a build artifact, not
 a page to maintain.
 
-Four steps, once per repo. Only the first is automated.
+Two steps, once per repo.
 
 ```bash
 wss datapage --repo-url https://github.com/<owner>/<repo>
@@ -111,25 +111,35 @@ git add CITATION.cff docs/ && git commit && git push
    and why the history would otherwise be lost. Replace the scaffold keywords
    too: name the actual publishers and places, because retrieval grounds on
    entities and `open-data, dataset` names none.
-2. **Settings → Pages → deploy from `main`, `/docs`.** The generated
-   `docs/.nojekyll` keeps Jekyll from touching the file.
-3. **Connect Zenodo *before* tagging.** zenodo.org → profile menu → GitHub →
-   *Sync now* → toggle the repo on. Zenodo only archives releases created
-   **after** the webhook exists; tag first and that release is invisible to it.
-4. **Tag an annual release**, then paste the **concept DOI** — not the version
-   DOI — into `CITATION.cff` as `doi:`, rerun `wss datapage`, and push. The
-   concept DOI always resolves to the latest release, so it never goes stale.
+2. **Settings → Pages → deploy from `main`, `/docs`.** A repo file cannot be
+   read by a dataset index; only the served page can. `datapage` writes
+   `docs/.nojekyll` so prose kept alongside the page cannot fail the build.
 
-**Then fix the resource type.** Zenodo's GitHub integration assumes it is
-archiving software and types the record `Software`, ignoring `type: dataset`
-in `CITATION.cff`. Open the record → Edit → *Resource type* → **Dataset** →
-Publish. Metadata stays editable after publication; the record itself is
-permanent and cannot be deleted, so check `personal_data` across the registry
-before the first release.
+After that it maintains itself: `derive` regenerates the page on every
+scheduled run, so the coverage dates track the manifest instead of the last
+time someone remembered.
 
-Worth verifying once the DOI exists: `api.datacite.org/dois/<doi>` should
-report `state: findable` and `resourceTypeGeneral: Dataset`. That is the gate
-for every index that harvests DataCite.
+### On DOIs, and why this stops at two steps
+
+The obvious third step is Zenodo: connect the webhook, tag a release, paste the
+**concept DOI** into `CITATION.cff` as `doi:` (never the version DOI — the
+concept one always resolves to the latest release), then fix the resource type
+by hand, because Zenodo's GitHub integration types every record `Software` and
+ignores `type: dataset` in the file.
+
+**Done once here, deliberately not repeated.** It is a real archival service
+and the DOI is real, but it answers a question these repos were not asking. A
+DOI buys citability in venues that require one and a copy that outlives the
+host; it buys **no discovery** that the served page does not already provide,
+and it adds a release ritual to every repo. The page is the load-bearing part —
+Dataset Search reads JSON-LD, not DOIs.
+
+So: mint one if a specific venue asks for it. Otherwise the page cites the
+repository and the access date, which is a citable handle that costs nothing to
+keep current. Two caveats if you do it: connect the webhook **before** tagging,
+because Zenodo only archives releases created after it exists; and a published
+record is permanent and cannot be deleted, so check `personal_data` across the
+registry first.
 
 ## Docs
 

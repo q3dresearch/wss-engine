@@ -116,3 +116,10 @@ def test_write_creates_the_docs_directory(tmp_path):
     path = datapage.write(_repo(tmp_path), "https://github.com/x/y")
     assert path == tmp_path / "docs" / "index.html"
     assert path.exists()
+
+
+def test_write_opts_out_of_jekyll(tmp_path):
+    """Prose in docs/ must not be able to fail the Pages build."""
+    _repo(tmp_path)
+    path = datapage.write(tmp_path, "https://github.com/o/r")
+    assert (path.parent / ".nojekyll").exists()

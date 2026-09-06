@@ -204,4 +204,10 @@ def write(root: Path | str, repo_url: str = "") -> Path:
     path = root / FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(build(root, repo_url), encoding="utf-8")
+    # GitHub Pages runs Jekyll over the published directory unless told not to.
+    # Repos keep prose in ``docs/`` alongside this page, and Jekyll will try to
+    # render it — a stray Liquid brace in a markdown file fails the *whole*
+    # build, which shows up as the page silently not updating rather than as an
+    # error anyone sees. Cheaper to opt out than to keep docs/ Jekyll-safe.
+    (path.parent / ".nojekyll").touch()
     return path
