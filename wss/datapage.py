@@ -130,11 +130,15 @@ def build(root: Path | str, repo_url: str = "") -> str:
         f"<p class=\"cov\">History held: <strong>{e(first)}</strong> to "
         f"<strong>{e(last)}</strong>.</p>" if first and last else ""
     )
+    # Without a DOI, still say how to cite. Promising a DOI that nobody intends
+    # to mint is worse than having none: a dataset should always carry a
+    # citable handle, and the repository URL is one.
     cite = (
         f"<p>Cite this dataset: <a href=\"https://doi.org/{e(doi)}\">"
         f"https://doi.org/{e(doi)}</a></p>" if doi else
-        "<p>A DOI is minted per release once the repository is connected to "
-        "Zenodo.</p>"
+        f"<p>Cite this dataset by its repository and the date you took it from: "
+        f"<a href=\"{e(repo_url)}\">{e(repo_url)}</a>"
+        + (f", accessed {e(last)}." if last else ".") + "</p>"
     )
 
     return f"""<!doctype html>

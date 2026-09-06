@@ -55,7 +55,7 @@ wrong.
 ## Using it
 
 ```bash
-pip install "wss @ git+https://github.com/neldivad/wss-engine.git@v0.5.7"
+pip install "wss @ git+https://github.com/neldivad/wss-engine.git@v0.5.8"
 
 wss explore <url>                     # case a site before writing anything
 wss init ../wss-yoursite --owner me   # scaffold a domain repo
