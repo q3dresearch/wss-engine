@@ -165,6 +165,46 @@ cases*, *TB treatment coverage*, *adolescent birth rate*, *pharmacists per
 updated, healthy — and still be an inventory whose next round is unfunded. The
 question is not when it last moved, but whether anything makes it move again.
 
+### 3d. Does it need a credential, and what does the credential buy?
+
+A key is not a one-time setup cost. It is a permanent, recurring obligation
+that scales with the number of publishers you hold: each one expires on its own
+schedule, breaks CI in its own way, and has to be rotated by a human who
+remembers it exists. Everything else in this fleet is fixed cost — one engine,
+one template, one weekly sweep, however many repos. Credentials are the only
+thing that gets worse as you add sources.
+
+The base rate, from 2,107 recorded attempts across the fleet:
+
+| | sources | attempts | failure rate |
+| --- | --- | --- | --- |
+| **needs a credential** | 11 | 45 | **31%** |
+| open | 74 | 1,838 | **1%** |
+
+Attempts exclude each source's first three, so it is not the debugging phase;
+both groups have the same median attempts per source. The keyed sample is small
+and concentrated in three misbehaving sources, so treat 31% as "much worse",
+not as a precise multiple. The direction has not reversed under any cut.
+
+So ask what the credential actually buys, and check rather than assume:
+
+- **Nothing.** `peeringdb.facilities.geo` carried a key to raise a rate limit.
+  Every failure it ever recorded was `retries_exhausted_status_429` *with the
+  key set*, its two unkeyed siblings on the same host failed at the same rate,
+  and the endpoint returns 5,860 rows unauthenticated. The key was pure
+  liability and is gone.
+- **Nothing, because the door is shut anyway.** Four of the fleet's seven
+  remaining secrets serve `accessdata.fda.gov`, which scores GitHub runners as
+  bots and answers them with a 404 apology page — under a valid key. We rotate
+  credentials for data CI never collects.
+- **Real capability.** `OPENROUTER_API_KEY` reaches a paid API with no public
+  equivalent. That is worth the obligation. Say so in the registry entry.
+
+One request settles it. Fetch the URL with no credential and look at the status
+and the row count; if it answers, delete the auth block. A source that needs a
+key is not disqualified — it is more expensive than it looks, and the price is
+paid every month forever rather than once during casing.
+
 ### 4. Does the payload carry its own "as of" date?
 
 If yes, the parser should set `observed_at` from it. This matters most where
