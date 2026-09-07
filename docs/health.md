@@ -43,3 +43,26 @@ so a death is archived as evidence instead of counted as a failure.
 
 `--dry-run` computes the table without flipping anything; `--threshold N`
 overrides the default of 5.
+
+
+## A rotted source no longer reds the run
+
+`wss capture` used to exit 1 on any quarantined or errored source. At fleet
+scale some source is always rotting, so the red tick was permanently on --
+wss-mining-pipeline went red with 12 of 17 endpoints succeeding, and a red tick
+that is always on is one nobody reads.
+
+Red is now reserved for a run that could not function: **zero successes with at
+least one failure**, which points at the network, the credentials or the engine
+rather than at one publisher. A missing credential is the exception and still
+fails immediately, because it is our misconfiguration and will not heal.
+
+Per-source rot escalates on its own path instead:
+
+1. the manifest row records the failure every run
+2. `consecutive_failures` climbs; at five, health auto-disables the source and
+   opens an issue naming it
+3. the weekly fleet sift reports it as `rot` long before that -- a monthly
+   source that fails its single attempt shows a 100% `gate_fail_rate_28d`
+
+`wss capture --strict` restores the old all-or-nothing rule.

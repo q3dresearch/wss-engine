@@ -74,9 +74,10 @@ def test_selftest_all_outcomes(tmp_path):
         assert rows_for(root, "fixture.demo.beta")[-1]["outcome"] == "unchanged"
         assert raw_file_count(root) == 4
 
-        # quarantined — gate failure, loud exit, bytes kept out of raw/
+        # quarantined — bytes kept out of raw/, but two sources still captured,
+        # so the run is green: one rotted source must not red a repo forever.
         server.set("/beta", json.dumps({"error": "Access Denied", "pad": "x" * 30}))
-        assert run(root, "capture", "--cadence", "weekly", "--shard", "1/1") == 1
+        assert run(root, "capture", "--cadence", "weekly", "--shard", "1/1") == 0
         beta_last = rows_for(root, "fixture.demo.beta")[-1]
         assert beta_last["outcome"] == "quarantined"
         assert beta_last["reason"] == "contains_forbidden_text"
@@ -84,10 +85,10 @@ def test_selftest_all_outcomes(tmp_path):
         assert (root / beta_last["raw_ref"]).is_file()
         assert raw_file_count(root) == 4  # nothing entered the archive
 
-        # error — retries exhausted on 500s, loud exit
+        # error — retries exhausted on 500s; still green, still recorded
         server.set("/beta", good_body("/beta", 1))
         server.set("/gamma", "boom", status=500, content_type="text/plain")
-        assert run(root, "capture", "--cadence", "weekly", "--shard", "1/1") == 1
+        assert run(root, "capture", "--cadence", "weekly", "--shard", "1/1") == 0
         gamma_last = rows_for(root, "fixture.demo.gamma")[-1]
         assert gamma_last["outcome"] == "error"
         assert gamma_last["reason"] == "retries_exhausted_status_500"
@@ -153,3 +154,29 @@ def test_capture_refuses_an_empty_shard(tmp_path, monkeypatch):
     assert cli.main(
         ["--root", str(tmp_path), "capture", "--cadence", "weekly", "--shard", "1/1", "--allow-empty"]
     ) == 0
+
+
+@pytest.mark.usefixtures("contact_env")
+def test_red_is_reserved_for_a_run_that_could_not_function(tmp_path, capsys):
+    """One rotted source must not red a repo forever -- wss-mining-pipeline went
+    red with 12 of 17 endpoints succeeding. But a run where *nothing* worked is
+    the network, the credentials or the engine, and that must still be loud."""
+    with FixtureServer() as server:
+        make_fleet(tmp_path, server)
+        assert run(tmp_path, "capture", "--cadence", "weekly", "--shard", "1/1") == 0
+
+        # every source rots at once -> nothing captured -> red
+        for path in ("/alpha", "/beta", "/gamma"):
+            server.set(path, json.dumps({"error": "Access Denied", "pad": "x" * 30}))
+        assert run(tmp_path, "capture", "--cadence", "weekly", "--shard", "1/1") == 1
+        assert "nothing captured" in capsys.readouterr().err
+
+        # one recovers -> green again, and the other two are named in the log
+        server.set("/alpha", good_body("/alpha", 9))
+        assert run(tmp_path, "capture", "--cadence", "weekly", "--shard", "1/1") == 0
+        err = capsys.readouterr().err
+        assert "could not see 2 endpoint(s)" in err
+        assert "fixture.demo.beta" in err
+
+        # --strict restores the old all-or-nothing rule for anyone who wants it
+        assert run(tmp_path, "capture", "--cadence", "weekly", "--shard", "1/1", "--strict") == 1

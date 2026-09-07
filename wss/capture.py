@@ -378,10 +378,16 @@ def capture_source(
 
 
 def write_heartbeat(root: Path | str, payload: dict) -> Path:
-    """state/last_run.json — written every run, even when nothing changed.
+    """state/last_run.json — the record of a local run.
 
-    It proves the cron is alive, and the resulting repo activity stops GitHub
-    from disabling scheduled workflows after 60 quiet days.
+    In CI this file never leaves the shard: the pack step stages only `raw` and
+    `manifest`, and the runner is ephemeral. The committed heartbeat is written
+    by the commit job instead, because it is the only place that knows what the
+    whole matrix planned rather than one shard's slice.
+
+    Either way it must carry what was *attempted*, not just that the cron fired.
+    A heartbeat proving liveness alone is what let two repos look healthy while
+    capturing nothing.
     """
     state_dir = Path(root) / "state"
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -396,9 +402,55 @@ class CaptureReport:
     sources: int = 0
     counts: Counter = field(default_factory=Counter)
 
+    # first_capture/changed/unchanged all mean "we saw it". `skipped` is robots
+    # and is neither -- declining to fetch is not a failure of ours.
+    SUCCESS = ("first_capture", "changed", "unchanged")
+    FAILURE = ("quarantined", "error")
+    # Ours, not the publisher's. Source rot is tolerated because it self-reports
+    # through health and eventually auto-disables; a credential we never set
+    # will not heal on its own and no amount of waiting improves it.
+    CONFIG_FAILURES = ("missing_credential",)
+
+    @property
+    def successes(self) -> int:
+        return sum(self.counts[k] for k in self.SUCCESS)
+
+    @property
+    def failures(self) -> int:
+        return sum(self.counts[k] for k in self.FAILURE)
+
     @property
     def ok(self) -> bool:
-        return self.counts["error"] == 0 and self.counts["quarantined"] == 0
+        """Red when the run could not do its job -- not when one source rotted.
+
+        Failing on any quarantine made a rotted URL turn a repo red on every
+        run forever: wss-mining-pipeline went red with 12 of 17 endpoints
+        succeeding. A red tick that is always on is a red tick nobody reads.
+
+        Per-source rot escalates on its own path -- the manifest row feeds
+        health, which auto-disables after five consecutive failures and opens an
+        issue, and the weekly fleet sift reports gate rot at 50% over 28 days.
+        So this only has to catch the case those cannot: nothing worked at all,
+        which means the network, the credentials or the engine, not the source.
+        """
+        if self.config_failures():
+            return False
+        return not (self.successes == 0 and self.failures > 0)
+
+    def config_failures(self) -> list[str]:
+        """Failures that are our misconfiguration rather than the source moving."""
+        return [
+            f"{row['source_id']} ({row['reason']})"
+            for row in self.rows
+            if row.get("reason") in self.CONFIG_FAILURES
+        ]
+
+    def failing_sources(self) -> list[str]:
+        seen: dict[str, str] = {}
+        for row in self.rows:
+            if row.get("outcome") in self.FAILURE and row["source_id"] not in seen:
+                seen[row["source_id"]] = row.get("reason", "?")
+        return [f"{sid} ({reason})" for sid, reason in seen.items()]
 
 
 def run_capture(

@@ -167,6 +167,25 @@ def scan_repo(repo: Path) -> list[Finding]:
                                  f"fires every ~{period:.0f}h against a capture that changes every ~{fastest:.0f}h",
                                  f"slow {fname} to the capture cadence -- the extra runs cannot find new data"))
 
+    # --- what does the last committed run say it did? ---
+    # Config parsing infers whether a capture *would* select anything; this is
+    # the run's own account of what it actually planned, in git, after the fact.
+    beat = repo / "state" / "last_run.json"
+    if beat.is_file():
+        try:
+            planned = json.loads(beat.read_text()).get("sources_planned")
+        except json.JSONDecodeError:
+            planned = None
+            found.append(Finding("drift", "heartbeat_unreadable", name, "state/last_run.json",
+                                 "committed heartbeat is not valid JSON",
+                                 "check the printf in the commit job -- a missing job output "
+                                 "renders as an empty field"))
+        if planned is not None and str(planned).strip() in ("0", ""):
+            found.append(Finding("dead", "last_run_planned_nothing", name, "state/last_run.json",
+                                 f"the last committed run recorded sources_planned={planned!r}",
+                                 "this repo's most recent capture selected no sources -- fix "
+                                 "CADENCE or the registry before the next scheduled run"))
+
     # --- is anyone watching? ------------------------------------------------
     rows = _health_rows(repo)
     tracked = {r["source_id"] for r in rows}

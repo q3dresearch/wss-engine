@@ -107,8 +107,22 @@ def cmd_capture(args: argparse.Namespace, root: Path) -> int:
             f"non-empty shards, so CADENCE is wrong or the registry changed mid-run"
         )
         return 1
+    # Name them even when the run stays green: the log is the first place
+    # anyone looks, and health/fleet-sift are the escalation, not the alarm.
+    if report.failures:
+        _err(f"could not see {report.failures} endpoint(s): {', '.join(report.failing_sources())}")
+        _err("  recorded for health; auto-disable fires after 5 consecutive failures")
+    if config := report.config_failures():
+        _err(f"misconfigured, not rotted: {', '.join(config)} — this will not heal on its own")
+        return 1
     if not report.ok:
-        _err("capture had error/quarantined outcomes — failing loudly")
+        _err(
+            f"nothing captured: {report.failures} failure(s), 0 success(es) — "
+            "that is the network, the credentials or the engine, not one source"
+        )
+        return 1
+    if args.strict and report.failures:
+        _err("--strict: failing on per-source rot")
         return 1
     return 0
 
@@ -185,6 +199,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--cadence", required=True, choices=sorted(registry.CADENCE_HOURS))
     p.add_argument("--allow-empty", action="store_true",
                    help="succeed even if the shard holds no sources (default: fail)")
+    p.add_argument("--strict", action="store_true",
+                   help="fail on any quarantined/error source (pre-0.6.8 behaviour)")
     p.add_argument("--shard", default="1/1", help="e.g. 3/20 (default 1/1 = everything)")
 
     p = sub.add_parser("health", help="rebuild the health table and apply auto-disable")

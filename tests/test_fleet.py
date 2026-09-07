@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import textwrap
 from pathlib import Path
 
@@ -204,3 +205,34 @@ def test_a_comment_quoting_the_bad_pattern_is_not_a_finding(tmp_path):
         )
     )
     assert [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "plan_exit_swallowed"] == []
+
+
+def _heartbeat(repo, **fields):
+    (repo / "state").mkdir(exist_ok=True)
+    (repo / "state" / "last_run.json").write_text(json.dumps(fields))
+
+
+def test_a_committed_heartbeat_that_planned_nothing_is_dead(tmp_path):
+    """Config parsing says what a capture *would* select; the heartbeat is the
+    run's own account of what it actually did, in git, after the fact."""
+    repo = make_repo(tmp_path, "wss-gho")
+    _heartbeat(repo, cadence="weekly", sources_planned=0, completed_at="2026-09-07T22:10:00Z")
+    dead = [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "last_run_planned_nothing"]
+    assert len(dead) == 1 and dead[0].severity == "dead"
+    assert "sources_planned=0" in dead[0].detail
+
+
+def test_a_healthy_heartbeat_is_not_a_finding(tmp_path):
+    repo = make_repo(tmp_path, "wss-gho")
+    _heartbeat(repo, cadence="weekly", sources_planned=2, completed_at="2026-09-07T22:10:00Z")
+    assert fleet.scan(fleet.find_repos(tmp_path)) == []
+
+
+def test_an_empty_field_from_a_missing_job_output_is_caught(tmp_path):
+    """`"sources_planned":%s` with an unset needs.plan.outputs.count renders as
+    `"sources_planned":,` -- invalid JSON, and silently so."""
+    repo = make_repo(tmp_path, "wss-gho")
+    (repo / "state").mkdir(exist_ok=True)
+    (repo / "state" / "last_run.json").write_text('{"cadence":"weekly","sources_planned":,"x":1}')
+    kinds_found = {f.kind for f in fleet.scan(fleet.find_repos(tmp_path))}
+    assert "heartbeat_unreadable" in kinds_found
