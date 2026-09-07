@@ -1,8 +1,11 @@
 # Running a fleet on GitHub Actions
 
-A domain repo needs five small workflows, none of which ever name a source.
-The canonical templates live in `examples/workflows/`; a domain repo copies
-them once and never touches them again.
+A domain repo needs four small workflows -- capture, health, derive, validate
+-- none of which ever name a source. `wss init` writes them from
+`wss/templates/domain/github/workflows/`, the single canonical copy; a repo
+adds a `capture-monthly.yml` beside the weekly one only if it captures at two
+cadences. Edit the template, never a scaffolded copy: a second copy drifts, and
+then the fleet is patched one repo at a time.
 
 ## The shape
 
