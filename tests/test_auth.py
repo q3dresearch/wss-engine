@@ -239,3 +239,31 @@ def test_body_requires_post(tmp_path):
         "  - url: https://example.invalid/x\n    body:\n      rows: 1\n"))
     with pytest.raises(registry.RegistryError, match="only sent on POST"):
         registry.load_registry(tmp_path)
+
+
+@pytest.mark.usefixtures("contact_env")
+def test_form_encoding_sends_urlencoded_not_json(tmp_path):
+    # FDA's Data Dashboard takes JSON and FDA's own iRES takes form-urlencoded
+    # with the whole query as one `payload` string. Same agency, two encodings.
+    with FixtureServer() as srv:
+        srv.allow_all_robots()
+        srv.set("/q", BODY)
+        path = write_source_yaml(tmp_path, "demo.api.form", f"{srv.url}/q")
+        path.write_text(path.read_text().replace(
+            f"  - url: {srv.url}/q\n",
+            f"  - url: {srv.url}/q\n    method: POST\n    encoding: form\n"
+            "    body:\n      payload: '{\"rows\":5}'\n"))
+        assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "weekly"]) == 0
+        assert srv.bodies[-1] == b"payload=%7B%22rows%22%3A5%7D"
+        ct = [h.get("Content-Type") for _, h in srv.requests if h.get("Content-Type")]
+        assert "application/x-www-form-urlencoded" in ct
+        assert "application/json" not in ct
+
+
+def test_encoding_without_post_is_rejected(tmp_path):
+    path = write_source_yaml(tmp_path, "demo.api.thing", "https://example.invalid/x")
+    path.write_text(path.read_text().replace(
+        "  - url: https://example.invalid/x\n",
+        "  - url: https://example.invalid/x\n    encoding: form\n"))
+    with pytest.raises(registry.RegistryError, match="only applies to a POST body"):
+        registry.load_registry(tmp_path)

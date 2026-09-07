@@ -33,7 +33,7 @@ GATE_KEYS = (
     "must_not_contain",
     "max_shrink_pct",
 )
-ENDPOINT_KEYS = ("url", "delay_seconds", "timeout_seconds", "method", "body")
+ENDPOINT_KEYS = ("url", "delay_seconds", "timeout_seconds", "method", "body", "encoding")
 REQUIRED_KEYS = (
     "source_id",
     "status",
@@ -77,6 +77,10 @@ class Endpoint:
     # alone. body_key() below is what keeps them apart.
     method: str = "GET"
     body: dict | None = None
+    # Publishers disagree on how a POST body is spelled. FDA's Data Dashboard
+    # takes JSON; FDA's own iRES takes form-urlencoded with the whole query as
+    # a single `payload` string. Same agency, same week, two encodings.
+    encoding: str = "json"
 
     def body_key(self) -> str:
         """Stable short hash of the request body, or '' for a plain GET.
@@ -244,8 +248,14 @@ def _validate_endpoints(endpoints: object, problems: list[str], where: str) -> l
                 f"{ep_where}: body looks like it carries a credential. "
                 f"Use `auth: {{headers: {{Header-Name: ENV_VAR}}}}` instead"
             )
+        encoding = str(ep.get("encoding", "json")).lower()
+        if encoding not in ("json", "form"):
+            problems.append(f"{ep_where}: encoding must be json or form")
+            encoding = "json"
+        if ep.get("encoding") is not None and method != "POST":
+            problems.append(f"{ep_where}: encoding only applies to a POST body")
         parsed.append(Endpoint(url=url, delay_seconds=float(delay), timeout_seconds=float(timeout),
-                               method=method, body=body))
+                               method=method, body=body, encoding=encoding))
     return parsed
 
 

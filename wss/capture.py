@@ -223,8 +223,13 @@ class Fetcher:
                 headers["If-Modified-Since"] = last_modified
         payload = None
         if endpoint.method == "POST":
-            payload = json.dumps(endpoint.body or {}, sort_keys=True, separators=(",", ":")).encode()
-            headers["Content-Type"] = "application/json"
+            if endpoint.encoding == "form":
+                payload = urllib.parse.urlencode(
+                    sorted((endpoint.body or {}).items())).encode()
+                headers["Content-Type"] = "application/x-www-form-urlencoded"
+            else:
+                payload = json.dumps(endpoint.body or {}, sort_keys=True, separators=(",", ":")).encode()
+                headers["Content-Type"] = "application/json"
         last_reason = "fetch_failed_unknown"
         for attempt in range(MAX_RETRIES + 1):
             if attempt:
