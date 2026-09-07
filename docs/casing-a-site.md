@@ -165,45 +165,39 @@ cases*, *TB treatment coverage*, *adolescent birth rate*, *pharmacists per
 updated, healthy — and still be an inventory whose next round is unfunded. The
 question is not when it last moved, but whether anything makes it move again.
 
-### 3d. Does it need a credential, and what does the credential buy?
+### 3d. Does it work from a runner, or only from your laptop?
 
-A key is not a one-time setup cost. It is a permanent, recurring obligation
-that scales with the number of publishers you hold: each one expires on its own
-schedule, breaks CI in its own way, and has to be rotated by a human who
-remembers it exists. Everything else in this fleet is fixed cost — one engine,
-one template, one weekly sweep, however many repos. Credentials are the only
-thing that gets worse as you add sources.
+The variable that decides whether a capture works is usually **where the request
+comes from**, not what it carries. Publishers rate-limit and bot-score by IP,
+and a GitHub runner's IP is shared with an enormous number of other users, so it
+arrives pre-judged in a way your home connection never does.
 
-The base rate, from 2,107 recorded attempts across the fleet:
+Two sources in this fleet make the point from opposite directions:
 
-| | sources | attempts | failure rate |
-| --- | --- | --- | --- |
-| **needs a credential** | 11 | 45 | **31%** |
-| open | 74 | 1,838 | **1%** |
+- `peeringdb.facilities.geo` failed four times with
+  `retries_exhausted_status_429` while anonymous. A key was added, and the next
+  CI run captured cleanly. **The credential was the fix**, because it moves you
+  off the shared anonymous per-IP quota and onto your own.
+- `accessdata.fda.gov` answers GitHub runners with a 404 apology page **under a
+  valid API key**. The credential buys nothing, because the block is on the
+  runner, not on the request.
 
-Attempts exclude each source's first three, so it is not the debugging phase;
-both groups have the same median attempts per source. The keyed sample is small
-and concentrated in three misbehaving sources, so treat 31% as "much worse",
-not as a precise multiple. The direction has not reversed under any cut.
+So the test that settles it is not "does this URL answer?" — from your laptop it
+almost always does. It is **"does this answer from CI?"**, and the only way to
+know is to run it there once before trusting the entry. A source that works
+locally and fails in Actions is the normal case, not the surprising one.
 
-So ask what the credential actually buys, and check rather than assume:
+A credential is a real obligation — it expires, it has to be rotated, and its
+absence surfaces as `missing_credential` rather than as anything self-healing.
+Of this fleet's 14 recorded failures on keyed sources, seven are exactly that:
+the secret had not been added yet. That is a one-time onboarding cost, paid
+during casing. Whether it becomes a recurring cost depends on expiry policy, and
+this fleet is too young to have measured that — do not assume either way.
 
-- **Nothing.** `peeringdb.facilities.geo` carried a key to raise a rate limit.
-  Every failure it ever recorded was `retries_exhausted_status_429` *with the
-  key set*, its two unkeyed siblings on the same host failed at the same rate,
-  and the endpoint returns 5,860 rows unauthenticated. The key was pure
-  liability and is gone.
-- **Nothing, because the door is shut anyway.** Four of the fleet's seven
-  remaining secrets serve `accessdata.fda.gov`, which scores GitHub runners as
-  bots and answers them with a 404 apology page — under a valid key. We rotate
-  credentials for data CI never collects.
-- **Real capability.** `OPENROUTER_API_KEY` reaches a paid API with no public
-  equivalent. That is worth the obligation. Say so in the registry entry.
-
-One request settles it. Fetch the URL with no credential and look at the status
-and the row count; if it answers, delete the auth block. A source that needs a
-key is not disqualified — it is more expensive than it looks, and the price is
-paid every month forever rather than once during casing.
+What to write down while casing: which of the two situations you are in. "Needs
+a key, verified it captures from CI" and "needs a key and *still* cannot be
+captured from CI" look identical in the registry and could not be more
+different in what they cost.
 
 ### 4. Does the payload carry its own "as of" date?
 
