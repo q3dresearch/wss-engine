@@ -31,12 +31,13 @@ env:
 jobs:
   plan:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       shards: ${{ steps.plan.outputs.shards }}
       count: ${{ steps.plan.outputs.count }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install engine
@@ -58,6 +59,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.shards != '[]'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false # one bad source must not stop the rest of the fleet
       matrix:
@@ -69,8 +71,8 @@ jobs:
     # This is the one workflow edit a new *credential* requires — adding a
     # source never needs one.
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install engine
@@ -87,7 +89,7 @@ jobs:
           fi
       - name: Upload shard delta
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: capture-${{ env.CADENCE }}-${{ strategy.job-index }}
           path: shard-delta.tgz
@@ -99,9 +101,10 @@ jobs:
     # always(): a red shard still gets its successful sources committed
     if: always() && needs.plan.result == 'success' && needs.plan.outputs.shards != '[]'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: capture-${{ env.CADENCE }}-*
           merge-multiple: false
