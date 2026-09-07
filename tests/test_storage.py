@@ -21,10 +21,43 @@ def test_path_convention_is_exact():
 
 
 def test_ext_for():
-    assert storage.ext_for("application/json; charset=utf-8") == "json"
-    assert storage.ext_for("text/html") == "html"
-    assert storage.ext_for("application/octet-stream") == "bin"
-    assert storage.ext_for("") == "bin"
+    # Raw is stored gzipped, so the extension carries `.gz`.
+    assert storage.ext_for("application/json; charset=utf-8") == "json.gz"
+    assert storage.ext_for("text/html") == "html.gz"
+    assert storage.ext_for("application/octet-stream") == "bin.gz"
+    assert storage.ext_for("") == "bin.gz"
+
+
+def test_compression_is_transparent_and_actually_compresses(tmp_path):
+    """A parser sees the original bytes; the disk sees far fewer of them."""
+    store = storage.LocalGitStore(tmp_path)
+    body = (b'{"value":' + b'1234567890,' * 4000 + b'0}')
+    rel = storage.raw_path("a.b.c", TS, SHA, storage.ext_for("application/json"))
+    store.write(rel, body)
+    assert store.read(rel) == body
+    on_disk = (tmp_path / rel).stat().st_size
+    assert on_disk < len(body) // 5
+
+
+def test_uncompressed_refs_still_resolve(tmp_path):
+    """Every raw_ref already committed as plain `.json` must keep working, or
+    the manifests that point at them stop being honest."""
+    store = storage.LocalGitStore(tmp_path)
+    rel = storage.raw_path("a.b.c", TS, SHA, "json")      # no .gz
+    store.write(rel, b'{"x": 1}')
+    assert store.read(rel) == b'{"x": 1}'
+    assert (tmp_path / rel).read_bytes() == b'{"x": 1}'   # written as-is
+
+
+def test_identical_content_gives_identical_bytes(tmp_path):
+    """gzip stamps mtime by default, which would defeat dedupe by content hash:
+    the same payload would produce different bytes on every fetch."""
+    store = storage.LocalGitStore(tmp_path)
+    rel_a = storage.raw_path("a.b.c", TS, SHA, "json.gz")
+    rel_b = storage.raw_path("a.b.d", TS, SHA, "json.gz")
+    store.write(rel_a, b'{"same": true}')
+    store.write(rel_b, b'{"same": true}')
+    assert (tmp_path / rel_a).read_bytes() == (tmp_path / rel_b).read_bytes()
 
 
 def test_local_git_store_roundtrip(tmp_path):

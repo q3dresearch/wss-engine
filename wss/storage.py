@@ -9,6 +9,7 @@ rewrite. Year/month partitioning keeps every directory under GitHub's
 
 from __future__ import annotations
 
+import gzip
 import os
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -26,9 +27,36 @@ RAW_EXT_BY_TYPE = {
 }
 
 
+# Raw is stored gzipped. It is the same bytes -- gzip is lossless, and a parser
+# never sees the difference because the stores compress on write and expand on
+# read. WHO GHO responses compress to 9% of their size, the fleet's HTML and
+# JSON to roughly 20%, which is the difference between an archive that outgrows
+# GitHub within a year and one that does not.
+#
+# Backward compatible in the direction that matters: `read` only expands when
+# the path ends `.gz`, so every raw_ref already written as plain `.json` keeps
+# resolving. Nothing needs migrating for old manifests to stay honest.
+COMPRESS = True
+
+
 def ext_for(content_type: str) -> str:
     ct = (content_type or "").split(";")[0].strip().lower()
-    return RAW_EXT_BY_TYPE.get(ct, "bin")
+    ext = RAW_EXT_BY_TYPE.get(ct, "bin")
+    return f"{ext}.gz" if COMPRESS else ext
+
+
+def _pack(rel_path: str, data: bytes) -> bytes:
+    """Compress only for keys that say they are compressed."""
+    if not rel_path.endswith(".gz"):
+        return data
+    # mtime=0 so identical content always yields identical bytes -- otherwise
+    # the gzip header timestamp would change every fetch and dedupe by content
+    # hash would never fire again.
+    return gzip.compress(data, mtime=0)
+
+
+def _unpack(rel_path: str, data: bytes) -> bytes:
+    return gzip.decompress(data) if rel_path.endswith(".gz") else data
 
 
 def _timestamped_path(prefix: str, source_id: str, fetched_at: datetime, sha256_hex: str, ext: str) -> str:
@@ -70,14 +98,14 @@ class LocalGitStore(Store):
         path = self._path(rel_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_bytes(data)
+        tmp.write_bytes(_pack(rel_path, data))
         tmp.replace(path)
 
     def exists(self, rel_path: str) -> bool:
         return self._path(rel_path).is_file()
 
     def read(self, rel_path: str) -> bytes:
-        return self._path(rel_path).read_bytes()
+        return _unpack(rel_path, self._path(rel_path).read_bytes())
 
 
 class ObjectStore(Store):
@@ -100,7 +128,8 @@ class ObjectStore(Store):
         return f"{self.prefix}/{rel_path}" if self.prefix else rel_path
 
     def write(self, rel_path: str, data: bytes) -> None:
-        self.client.put_object(Bucket=self.bucket, Key=self._key(rel_path), Body=data)
+        self.client.put_object(Bucket=self.bucket, Key=self._key(rel_path),
+                               Body=_pack(rel_path, data))
 
     def exists(self, rel_path: str) -> bool:
         try:
@@ -110,7 +139,8 @@ class ObjectStore(Store):
             return False
 
     def read(self, rel_path: str) -> bytes:
-        return self.client.get_object(Bucket=self.bucket, Key=self._key(rel_path))["Body"].read()
+        raw = self.client.get_object(Bucket=self.bucket, Key=self._key(rel_path))["Body"].read()
+        return _unpack(rel_path, raw)
 
 
 def store_for(source, root: Path | str) -> Store:
