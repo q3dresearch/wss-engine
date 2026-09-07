@@ -122,3 +122,23 @@ def test_scaffold_teaches_credential_hygiene(scaffolded):
     assert not (scaffolded / ".env.local").exists()  # the user creates it
     workflow = (scaffolded / ".github" / "workflows" / "capture-daily.yml").read_text()
     assert "bearer_env" in workflow  # tells you where to add a credential
+
+
+def test_no_workflow_declares_an_empty_env(scaffolded):
+    # `env:` with nothing under it is valid YAML (it loads as None) and is
+    # rejected by GitHub at dispatch: "Unexpected value ''". Deleting the last
+    # variable out of an env block and leaving the comments behind therefore
+    # passes yaml.safe_load and breaks every workflow in the repo. Assert the
+    # thing the parser won't.
+    for path in sorted((scaffolded / ".github" / "workflows").glob("*.yml")):
+        doc = yaml.safe_load(path.read_text())
+        scopes = [("workflow", doc)] + list((doc.get("jobs") or {}).items())
+        for scope, obj in scopes:
+            assert "env" not in obj or obj["env"], f"{path.name} [{scope}]: empty env:"
+
+
+def test_capture_carries_a_contact_in_every_job(scaffolded):
+    # `wss plan` fails fast without a contact, and plan is a separate job from
+    # capture, so the variable has to sit at workflow scope to reach both.
+    doc = yaml.safe_load((scaffolded / ".github" / "workflows" / "capture-daily.yml").read_text())
+    assert "WSS_CONTACT" in (doc.get("env") or {})

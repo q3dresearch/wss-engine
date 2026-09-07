@@ -53,12 +53,12 @@ jobs:
       fail-fast: false # one bad source must not stop the rest of the fleet
       matrix:
         shard: ${{ fromJSON(needs.plan.outputs.shards) }}
-    env:
-      # Add one line per authenticated source, matching the
-      # `auth: {bearer_env: ...}` name in its registry entry, e.g.
-      #   WSS_SOMEPUBLISHER_KEY: ${{ secrets.WSS_SOMEPUBLISHER_KEY }}
-      # This is the one workflow edit a new *credential* requires — adding a
-      # source never needs one.
+    # env:  (no credentials needed by this repo)
+    # Add one line per authenticated source, matching the
+    # `auth: {bearer_env: ...}` name in its registry entry, e.g.
+    # WSS_SOMEPUBLISHER_KEY: ${{ secrets.WSS_SOMEPUBLISHER_KEY }}
+    # This is the one workflow edit a new *credential* requires — adding a
+    # source never needs one.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
