@@ -1,20 +1,21 @@
 # There is never a workflow per source: this shards whatever the registry
 # marks active at this cadence. Adding a source touches nothing here.
 #
-# For a weekly or monthly source, copy this file and change three things:
-# the workflow `name`, the cron, and `CADENCE`.
-name: capture-daily
+# Weekly is the floor: a daily capture has never changed a decision this fleet
+# makes, so the template does not ship one. For a monthly source, copy this file
+# and change three things: the workflow `name`, the cron, and `CADENCE`.
+name: capture-weekly
 
 on:
   schedule:
-    - cron: "10 22 * * *" # off the hour — GitHub's scheduler is contended at :00
+    - cron: "10 22 * * 1" # Monday, off the hour — GitHub's scheduler is contended at :00
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: fleet-commits-daily
+  group: fleet-commits
   cancel-in-progress: false
 
 env:
@@ -23,7 +24,7 @@ env:
   # in every shard. No setup required: GitHub supplies owner and repo, and
   # a fork sends its own. Set a WSS_CONTACT secret only to override.
   WSS_CONTACT: ${{ secrets.WSS_CONTACT || format('{0} +https://github.com/{1}', github.repository_owner, github.repository) }}
-  CADENCE: daily
+  CADENCE: weekly
   SHARDS: "20" # matrix cap is 256 jobs/run — aim for ~20 jobs of ~50 sources
   ENGINE_SPEC: "wss @ git+https://github.com/${{ github.repository_owner }}/wss-engine.git@v{{ENGINE_VERSION}}"
 

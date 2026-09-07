@@ -32,7 +32,7 @@ def test_bearer_token_is_sent(tmp_path, monkeypatch):
         server.allow_all_robots()
         server.set("/api", BODY)
         write_authed_source(tmp_path, server.url + "/api")
-        assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "daily"]) == 0
+        assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "weekly"]) == 0
         sent = [h for path, h in server.requests if path == "/api"]
     assert sent and sent[0].get("Authorization") == f"Bearer {SECRET}"
 
@@ -45,7 +45,7 @@ def test_credential_never_reaches_disk(tmp_path, monkeypatch):
         server.allow_all_robots()
         server.set("/api", BODY)
         write_authed_source(tmp_path, server.url + "/api")
-        assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "daily"]) == 0
+        assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "weekly"]) == 0
 
     written = [p for p in tmp_path.rglob("*") if p.is_file()]
     assert written, "capture wrote nothing"
@@ -63,7 +63,7 @@ def test_missing_credential_fails_loudly_but_locally(tmp_path, monkeypatch, caps
         write_authed_source(tmp_path, server.url + "/api")
         write_source_yaml(tmp_path, "demo.api.open", server.url + "/ok")  # no auth
         # non-zero exit: the run is red
-        assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "daily"]) == 1
+        assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "weekly"]) == 1
 
     authed = list(manifest.iter_rows(tmp_path, "demo.api.thing"))
     assert [r["outcome"] for r in authed] == ["error"]

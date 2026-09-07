@@ -15,7 +15,11 @@ from pathlib import Path
 
 import yaml
 
-CADENCE_HOURS = {"hourly": 1, "daily": 24, "weekly": 168, "monthly": 720}
+# Weekly is the floor and monthly the default: sample from how long a state
+# persists, not from how often the source republishes. Nothing this fleet
+# captures has ever been decided by a sub-weekly reading, so "daily" and
+# "hourly" are not offered -- a registry asking for one fails validation.
+CADENCE_HOURS = {"weekly": 168, "monthly": 720, "quarterly": 2160}
 STATUSES = ("active", "paused", "auto_disabled", "retired")
 PUBLISHER_TIERS = ("first_party", "primary", "redistribution")
 PERSONAL_DATA = ("none", "parties_only", "present")

@@ -10,12 +10,12 @@ them once and never touches them again.
 plan ──▶ capture (matrix over shards) ──▶ commit (rebase-retry)
 ```
 
-1. **plan** — `wss plan --cadence daily --shards 20` prints a JSON
+1. **plan** — `wss plan --cadence weekly --shards 20` prints a JSON
    array of non-empty shards (`["1/20","7/20",…]`). The workflow feeds it to
    `fromJSON` as the job matrix. That single indirection is what lets ten
    workflows drive thousands of sources.
 2. **capture** — each matrix job runs
-   `wss capture --cadence daily --shard <i>/<n>` over its slice, then
+   `wss capture --cadence weekly --shard <i>/<n>` over its slice, then
    uploads only the *new* files (a tarball of staged changes plus quarantine)
    as an artifact. `fail-fast: false` so one bad source cannot stop the rest.
 3. **commit** — downloads every shard's delta, drops `quarantine/` (it stays

@@ -38,10 +38,10 @@ def test_archive_schema_needs_no_user_parser(tmp_path, contact_env):
             gates="gates:\n  expect_status: 200\n  min_bytes: 10\n  content_type_any: [html]\n",
         )
 
-        assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "daily"]) == 0
+        assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "weekly"]) == 0
         # a silent revision the day after
         server.set("/opinion", OPINION_V2, content_type="text/html")
-        assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "daily"]) == 0
+        assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "weekly"]) == 0
 
     # derive works with no --parsers at all: the built-in covers archive.v1
     assert cli.main(["--root", str(tmp_path), "derive"]) == 0

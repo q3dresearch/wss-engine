@@ -28,7 +28,7 @@ def test_scaffold_validates_out_of_the_box(scaffolded, capsys):
 def test_dotfiles_are_renamed(scaffolded):
     assert (scaffolded / ".gitattributes").is_file()
     assert (scaffolded / ".gitignore").is_file()
-    assert (scaffolded / ".github" / "workflows" / "capture-daily.yml").is_file()
+    assert (scaffolded / ".github" / "workflows" / "capture-weekly.yml").is_file()
     assert not (scaffolded / "github").exists()
     assert not (scaffolded / "gitattributes").exists()
 
@@ -48,7 +48,7 @@ def test_two_separate_licence_files(scaffolded):
 
 
 def test_workflows_pin_the_generating_engine_version(scaffolded):
-    for name in ("capture-daily", "health", "derive", "validate"):
+    for name in ("capture-weekly", "health", "derive", "validate"):
         text = (scaffolded / ".github" / "workflows" / f"{name}.yml").read_text()
         assert f"wss-engine.git@v{__version__}" in text
         # GitHub's own ${{ }} expressions must survive templating untouched
@@ -120,7 +120,7 @@ def test_scaffold_teaches_credential_hygiene(scaffolded):
     assert "WSS_CONTACT=" in example
     assert "NEVER be committed" in example
     assert not (scaffolded / ".env.local").exists()  # the user creates it
-    workflow = (scaffolded / ".github" / "workflows" / "capture-daily.yml").read_text()
+    workflow = (scaffolded / ".github" / "workflows" / "capture-weekly.yml").read_text()
     assert "bearer_env" in workflow  # tells you where to add a credential
 
 
@@ -140,5 +140,5 @@ def test_no_workflow_declares_an_empty_env(scaffolded):
 def test_capture_carries_a_contact_in_every_job(scaffolded):
     # `wss plan` fails fast without a contact, and plan is a separate job from
     # capture, so the variable has to sit at workflow scope to reach both.
-    doc = yaml.safe_load((scaffolded / ".github" / "workflows" / "capture-daily.yml").read_text())
+    doc = yaml.safe_load((scaffolded / ".github" / "workflows" / "capture-weekly.yml").read_text())
     assert "WSS_CONTACT" in (doc.get("env") or {})

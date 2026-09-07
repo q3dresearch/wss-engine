@@ -53,7 +53,7 @@ def test_auto_disable_after_five_consecutive_failures(tmp_path):
     assert row["status"] == "auto_disabled"
     assert row["first_success_at"] == "2026-08-20T22:10:03Z"  # coverage range start
     assert row["last_success_at"] == "2026-08-20T22:10:03Z"
-    assert row["expected_interval_h"] == "24"
+    assert row["expected_interval_h"] == "168"
 
     # already disabled → not reported again on the next pass
     sources = registry.load_registry(tmp_path)

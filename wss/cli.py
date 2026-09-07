@@ -3,8 +3,8 @@
     wss explore <url>                             case a site before writing a registry entry
     wss init <dir> --owner <gh-owner>      scaffold a new domain repo
     wss validate                          registry schema check; CI gate
-    wss plan --cadence daily --shards 20  JSON shard array for the Actions matrix
-    wss capture --cadence daily --shard 3/20
+    wss plan --cadence weekly --shards 20  JSON shard array for the Actions matrix
+    wss capture --cadence weekly --shard 3/20
     wss health                            rebuild health table, apply auto-disable
     wss derive --since 2026-08            raw → observation tables
     wss doctor <source_id>               dry-run one source, print raw response

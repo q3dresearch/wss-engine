@@ -41,7 +41,7 @@ FLASH_BREAK_DAY = 30
 REGISTRY_YAML = f"""\
 source_id: {SOURCE_ID}
 status: active
-cadence: daily
+cadence: weekly
 schema_id: sandbox.v1
 
 publisher: Sandbox

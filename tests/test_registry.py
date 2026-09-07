@@ -14,7 +14,7 @@ def test_valid_entry_loads(tmp_path):
     assert len(sources) == 1
     s = sources[0]
     assert s.source_id == "fixture.demo.alpha"
-    assert s.cadence == "daily"
+    assert s.cadence == "weekly"
     assert s.endpoints[0].url == "https://example.com/api"
     assert s.endpoints[0].delay_seconds == 0
     assert s.gates["expect_status"] == 200
@@ -93,7 +93,7 @@ def test_duplicate_source_id(tmp_path):
 def test_validate_cli_fails_build_on_malformed_entry(tmp_path, capsys):
     path = write_source_yaml(tmp_path, "fixture.demo.alpha", "https://example.com/api")
     assert cli.main(["--root", str(tmp_path), "validate"]) == 0
-    path.write_text(path.read_text().replace("cadence: daily", "cadence: sometimes"))
+    path.write_text(path.read_text().replace("cadence: weekly", "cadence: sometimes"))
     assert cli.main(["--root", str(tmp_path), "validate"]) == 1
     assert "INVALID" in capsys.readouterr().err
 
@@ -119,7 +119,8 @@ def test_parse_shard():
 def test_plan_only_lists_occupied_shards(tmp_path):
     write_source_yaml(tmp_path, "fixture.demo.alpha", "https://example.com/api")
     sources = registry.load_registry(tmp_path)
-    shards = registry.plan(sources, "daily", 20)
+    shards = registry.plan(sources, "weekly", 20)
     expected_index = registry.shard_of("fixture.demo.alpha", 20)
     assert shards == [f"{expected_index + 1}/20"]
-    assert registry.plan(sources, "weekly", 20) == []
+    # a cadence the fixture does NOT declare must plan nothing
+    assert registry.plan(sources, "monthly", 20) == []

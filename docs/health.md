@@ -20,8 +20,8 @@ for every source including retired ones.
 
 - `consecutive_failures` — trailing `error`/`quarantined` rows since the last
   success; `skipped` (robots) counts as neither.
-- `expected_interval_h` — from cadence (hourly=1, daily=24, weekly=168,
-  monthly=720); compare with `staleness_h` to spot silent stalls.
+- `expected_interval_h` — from cadence (weekly=168, monthly=720,
+  quarterly=2160); compare with `staleness_h` to spot silent stalls.
 - `gate_fail_rate_28d` — quarantined ÷ attempts over the last 28 days; a
   creeping rate means the page is drifting under the gates before it dies.
 

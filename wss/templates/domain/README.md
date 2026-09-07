@@ -31,7 +31,7 @@ duckdb -c "SELECT * FROM read_csv_auto('derived/observations/*.csv') LIMIT 5"
 ## Coverage
 
 Date ranges are machine-readable in [health/health.csv](health/health.csv)
-(`first_success_at` → `last_success_at`, updated daily).
+(`first_success_at` → `last_success_at`, updated each run).
 
 | series | what it lists | covered since | status |
 | --- | --- | --- | --- |
@@ -76,7 +76,7 @@ export WSS_CONTACT="you@example.com"   # identifies you to publishers
 
 wss validate
 wss doctor <source_id>
-wss capture --cadence daily
+wss capture --cadence monthly
 wss derive --parsers parsers.<module>
 wss health --dry-run
 ```
@@ -88,7 +88,7 @@ wss health --dry-run
    `github.com/{{OWNER}}/wss` at the pinned tag.
 2. Set the repo secret **`WSS_CONTACT`** — capture refuses to run
    without it.
-3. Run `capture-daily` once by hand (Actions → capture-daily → Run
+3. Run `capture-weekly` once by hand (Actions → capture-weekly → Run
    workflow), confirm the bot's data commit lands, then let the cron take
    over.
 

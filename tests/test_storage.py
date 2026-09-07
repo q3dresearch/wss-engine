@@ -101,7 +101,7 @@ def _source(backend: str) -> Source:
     return Source(
         source_id="a.b.c",
         status="active",
-        cadence="daily",
+        cadence="weekly",
         schema_id="s.v1",
         publisher="P",
         publisher_tier="primary",

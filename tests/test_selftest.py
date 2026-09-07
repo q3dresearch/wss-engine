@@ -50,7 +50,7 @@ def test_selftest_all_outcomes(tmp_path):
         make_fleet(root, server)
 
         # first_capture — and a heartbeat even on the very first run
-        assert run(root, "capture", "--cadence", "daily", "--shard", "1/1") == 0
+        assert run(root, "capture", "--cadence", "weekly", "--shard", "1/1") == 0
         for source_id in SOURCES:
             assert [r["outcome"] for r in rows_for(root, source_id)] == ["first_capture"]
         assert raw_file_count(root) == 3
@@ -58,7 +58,7 @@ def test_selftest_all_outcomes(tmp_path):
         assert heartbeat["outcomes"] == {"first_capture": 3}
 
         # unchanged — dedupe skips the file write, never the manifest row
-        assert run(root, "capture", "--cadence", "daily", "--shard", "1/1") == 0
+        assert run(root, "capture", "--cadence", "weekly", "--shard", "1/1") == 0
         assert raw_file_count(root) == 3
         for source_id in SOURCES:
             last = rows_for(root, source_id)[-1]
@@ -69,14 +69,14 @@ def test_selftest_all_outcomes(tmp_path):
 
         # changed — only the mutated source gains a raw file
         server.set("/alpha", good_body("/alpha", 2))
-        assert run(root, "capture", "--cadence", "daily", "--shard", "1/1") == 0
+        assert run(root, "capture", "--cadence", "weekly", "--shard", "1/1") == 0
         assert rows_for(root, "fixture.demo.alpha")[-1]["outcome"] == "changed"
         assert rows_for(root, "fixture.demo.beta")[-1]["outcome"] == "unchanged"
         assert raw_file_count(root) == 4
 
         # quarantined — gate failure, loud exit, bytes kept out of raw/
         server.set("/beta", json.dumps({"error": "Access Denied", "pad": "x" * 30}))
-        assert run(root, "capture", "--cadence", "daily", "--shard", "1/1") == 1
+        assert run(root, "capture", "--cadence", "weekly", "--shard", "1/1") == 1
         beta_last = rows_for(root, "fixture.demo.beta")[-1]
         assert beta_last["outcome"] == "quarantined"
         assert beta_last["reason"] == "contains_forbidden_text"
@@ -87,7 +87,7 @@ def test_selftest_all_outcomes(tmp_path):
         # error — retries exhausted on 500s, loud exit
         server.set("/beta", good_body("/beta", 1))
         server.set("/gamma", "boom", status=500, content_type="text/plain")
-        assert run(root, "capture", "--cadence", "daily", "--shard", "1/1") == 1
+        assert run(root, "capture", "--cadence", "weekly", "--shard", "1/1") == 1
         gamma_last = rows_for(root, "fixture.demo.gamma")[-1]
         assert gamma_last["outcome"] == "error"
         assert gamma_last["reason"] == "retries_exhausted_status_500"
@@ -95,7 +95,7 @@ def test_selftest_all_outcomes(tmp_path):
         # skipped — robots.txt honoured (fresh Fetcher per run re-reads robots)
         server.set("/gamma", good_body("/gamma", 1))
         server.set("/robots.txt", "User-agent: *\nDisallow: /alpha\n", content_type="text/plain")
-        assert run(root, "capture", "--cadence", "daily", "--shard", "1/1") == 0
+        assert run(root, "capture", "--cadence", "weekly", "--shard", "1/1") == 0
         alpha_last = rows_for(root, "fixture.demo.alpha")[-1]
         assert alpha_last["outcome"] == "skipped"
         assert alpha_last["reason"] == "robots_disallowed"
@@ -112,16 +112,16 @@ def test_fleet_path_plan_shard_capture(tmp_path, capsys):
     with FixtureServer() as server:
         make_fleet(root, server)
 
-        assert run(root, "plan", "--cadence", "daily", "--shards", "3") == 0
+        assert run(root, "plan", "--cadence", "weekly", "--shards", "3") == 0
         shards = json.loads(capsys.readouterr().out.strip())
-        assert run(root, "plan", "--cadence", "daily", "--shards", "3") == 0
+        assert run(root, "plan", "--cadence", "weekly", "--shards", "3") == 0
         assert json.loads(capsys.readouterr().out.strip()) == shards  # deterministic
 
         assert shards, "three sources must occupy at least one shard"
         assert all(s.endswith("/3") for s in shards)
 
         for shard in shards:
-            assert run(root, "capture", "--cadence", "daily", "--shard", shard) == 0
+            assert run(root, "capture", "--cadence", "weekly", "--shard", shard) == 0
         capsys.readouterr()  # drop capture logs
 
         # every source captured exactly once across the whole matrix
@@ -136,4 +136,4 @@ def test_fleet_path_plan_shard_capture(tmp_path, capsys):
 def test_capture_requires_contact(tmp_path, monkeypatch):
     monkeypatch.delenv("WSS_CONTACT", raising=False)
     write_source_yaml(tmp_path, "fixture.demo.alpha", "http://127.0.0.1:9/x")
-    assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "daily"]) == 2
+    assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "weekly"]) == 2

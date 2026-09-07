@@ -27,7 +27,7 @@ def write_source_yaml(
     url: str,
     *,
     status: str = "active",
-    cadence: str = "daily",
+    cadence: str = "weekly",
     schema_id: str = "test.v1",
     gates: str | None = None,
     filename: str | None = None,

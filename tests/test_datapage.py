@@ -28,7 +28,7 @@ doi: 10.5281/zenodo.1234567
 SRC = """\
 source_id: demo.agency.queue
 status: active
-cadence: daily
+cadence: weekly
 schema_id: demo_v1
 publisher: Demo Agency
 publisher_tier: primary

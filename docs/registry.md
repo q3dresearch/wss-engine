@@ -14,7 +14,7 @@ additions are reviewable and never merge-conflict.
 ```yaml
 source_id: hf.models.text-generation   # publisher.domain.series — IMMUTABLE, never reused
 status: active                          # active | paused | auto_disabled | retired
-cadence: daily                          # hourly | daily | weekly | monthly
+cadence: monthly                        # weekly | monthly | quarterly
 schema_id: adoption.v1                  # picks the parser at derive time
 
 publisher: Hugging Face
@@ -48,6 +48,12 @@ beyond shape checking:
 
 - the filename must be `<source_id>.yml` and `source_id` must be
   `publisher.domain.series` (lowercase, ≥ 3 dot-separated segments)
+- `cadence` must be `weekly`, `monthly`, or `quarterly`. `daily` and `hourly`
+  are not in the vocabulary and fail validation: pick the cadence from how long
+  a state persists, not from how often the publisher republishes. Monthly is the
+  default, weekly the floor, quarterly for slow or meta-like processes. A faster
+  poll only buys *transitions* — if you cannot name the transition you would
+  miss, you are paying storage for nothing.
 - `dedupe_ignore` is an optional list of regexes stripped from the body **only**
   when deciding changed vs unchanged. Use it when a publisher stamps a random
   id into every render (Drupal's `js-view-dom-id-<hash>`, build ids, nonces),

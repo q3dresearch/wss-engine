@@ -5,7 +5,7 @@
 # have run `wss doctor example.web.stats` and read the raw response.
 source_id: example.web.stats     # publisher.domain.series — IMMUTABLE, never reused
 status: paused                   # active | paused | auto_disabled | retired
-cadence: daily                   # hourly | daily | weekly | monthly
+cadence: monthly                 # weekly | monthly | quarterly
 schema_id: example.v1            # picks the parser in parsers/
 
 publisher: Example Org
