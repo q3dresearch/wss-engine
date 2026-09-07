@@ -3,7 +3,7 @@
 Every request carries a User-Agent like:
 
 ```
-wss/0.5.0 (contact: https://github.com/neldivad/wss-openrouter)
+wss/0.5.0 (contact: https://github.com/q3dresearch/wss-openrouter)
 ```
 
 `WSS_CONTACT` is that contact string. Capture refuses to run without it.
