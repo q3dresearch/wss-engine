@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # Actions only, deliberately. The engine is pinned by git tag in
+  # requirements.txt and every capture workflow, and that pin is a coordination
+  # point we move on purpose — an automated bump would roll the whole fleet
+  # onto an untested engine one repo at a time. Actions are the opposite: they
+  # rot on GitHub's schedule, not ours. Every run currently warns that
+  # actions/checkout@v4 and setup-python@v5 target the deprecated Node 20.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "actions"
