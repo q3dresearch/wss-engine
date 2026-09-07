@@ -128,8 +128,13 @@ def test_fleet_path_plan_shard_capture(tmp_path, capsys):
         for source_id in SOURCES:
             assert [r["outcome"] for r in rows_for(root, source_id)] == ["first_capture"]
 
-        # wrong-cadence plan is empty → workflow matrix is skipped entirely
-        assert run(root, "plan", "--cadence", "monthly", "--shards", "3") == 0
+        # A wrong-cadence plan used to empty the matrix, skip capture, and stay
+        # green -- which is how wss-gho and wss-hugging-face captured nothing
+        # for days. It is an error now, and it names the cadence to switch to.
+        assert run(root, "plan", "--cadence", "monthly", "--shards", "3") == 1
+        assert "weekly=3" in capsys.readouterr().err
+        # the empty matrix stays reachable, but only on purpose
+        assert run(root, "plan", "--cadence", "monthly", "--shards", "3", "--allow-empty") == 0
         assert json.loads(capsys.readouterr().out.strip().splitlines()[-1]) == []
 
 
@@ -137,3 +142,14 @@ def test_capture_requires_contact(tmp_path, monkeypatch):
     monkeypatch.delenv("WSS_CONTACT", raising=False)
     write_source_yaml(tmp_path, "fixture.demo.alpha", "http://127.0.0.1:9/x")
     assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "weekly"]) == 2
+
+
+def test_capture_refuses_an_empty_shard(tmp_path, monkeypatch):
+    """`plan` only emits non-empty shards, so an empty one means CADENCE is
+    wrong or the registry moved. Reporting success burns a runner for nothing."""
+    monkeypatch.setenv("WSS_CONTACT", "t +https://github.com/x")
+    write_source_yaml(tmp_path, "fixture.demo.alpha", "https://example.com/a", cadence="monthly")
+    assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "weekly", "--shard", "1/1"]) == 1
+    assert cli.main(
+        ["--root", str(tmp_path), "capture", "--cadence", "weekly", "--shard", "1/1", "--allow-empty"]
+    ) == 0

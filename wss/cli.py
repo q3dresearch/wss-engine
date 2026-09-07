@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import argparse
+import collections
 import sys
 from pathlib import Path
 
@@ -69,6 +70,26 @@ def cmd_plan(args: argparse.Namespace, root: Path) -> int:
     shards = registry.plan(sources, args.cadence, args.shards)
     count = len(registry.select(sources, cadence=args.cadence))
     _err(f"# {args.cadence}: {count} active source(s) across {len(shards)} non-empty shard(s) of {args.shards}")
+    if args.count:
+        print(count)
+        return 0
+    # An empty plan is the failure that hides. It produces an empty job matrix,
+    # so no capture job runs, the commit job still writes its heartbeat, and the
+    # run is green -- which is how two repos captured nothing for days. There is
+    # no workflow worth scheduling that legitimately captures nothing, so say so
+    # here rather than letting the matrix swallow it.
+    if count == 0 and not args.allow_empty:
+        have = collections.Counter(
+            s.cadence for s in sources if s.status == "active"
+        )
+        declared = ", ".join(f"{c}={n}" for c, n in sorted(have.items())) or "no active sources at all"
+        _err(
+            f"plan selected 0 active source(s) at cadence {args.cadence!r}.\n"
+            f"  the registry declares: {declared}\n"
+            f"  fix CADENCE in this workflow, or the cadence on those sources.\n"
+            f"  (--allow-empty if this repo really has none at this cadence yet)"
+        )
+        return 1
     print(registry.plan_json(sources, args.cadence, args.shards))
     return 0
 
@@ -77,6 +98,15 @@ def cmd_capture(args: argparse.Namespace, root: Path) -> int:
     report = capture.run_capture(root, cadence=args.cadence, shard_spec=args.shard, log=print)
     summary = ", ".join(f"{k}={v}" for k, v in sorted(report.counts.items())) or "no sources in shard"
     print(f"shard {args.shard} [{args.cadence}]: {report.sources} source(s) — {summary}")
+    # `plan` only emits non-empty shards, so an empty one here means the registry
+    # moved under the run or CADENCE disagrees with it. Either way this job just
+    # spent a runner doing nothing and would otherwise report success.
+    if report.sources == 0 and not args.allow_empty:
+        _err(
+            f"shard {args.shard} [{args.cadence}] holds 0 source(s) — plan only emits "
+            f"non-empty shards, so CADENCE is wrong or the registry changed mid-run"
+        )
+        return 1
     if not report.ok:
         _err("capture had error/quarantined outcomes — failing loudly")
         return 1
@@ -146,10 +176,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("plan", help="print the JSON shard array for the workflow matrix")
     p.add_argument("--cadence", required=True, choices=sorted(registry.CADENCE_HOURS))
+    p.add_argument("--count", action="store_true", help="print how many sources match, nothing else")
+    p.add_argument("--allow-empty", action="store_true",
+                   help="succeed even if no active source matches (default: fail)")
     p.add_argument("--shards", type=int, default=20)
 
     p = sub.add_parser("capture", help="capture one shard of the active sources")
     p.add_argument("--cadence", required=True, choices=sorted(registry.CADENCE_HOURS))
+    p.add_argument("--allow-empty", action="store_true",
+                   help="succeed even if the shard holds no sources (default: fail)")
     p.add_argument("--shard", default="1/1", help="e.g. 3/20 (default 1/1 = everything)")
 
     p = sub.add_parser("health", help="rebuild the health table and apply auto-disable")

@@ -124,3 +124,29 @@ def test_plan_only_lists_occupied_shards(tmp_path):
     assert shards == [f"{expected_index + 1}/20"]
     # a cadence the fixture does NOT declare must plan nothing
     assert registry.plan(sources, "monthly", 20) == []
+
+
+def test_plan_refuses_to_succeed_at_planning_nothing(tmp_path, capsys, monkeypatch):
+    """The failure that hid: an empty matrix skips capture, the commit job still
+    writes a heartbeat, and the run is green."""
+    monkeypatch.setenv("WSS_CONTACT", "t +https://github.com/x")
+    write_source_yaml(tmp_path, "fixture.demo.alpha", "https://example.com/a", cadence="monthly")
+
+    assert cli.main(["--root", str(tmp_path), "plan", "--cadence", "weekly", "--shards", "20"]) == 1
+    err = capsys.readouterr().err
+    assert "monthly=1" in err          # names what the registry actually declares
+    assert "CADENCE" in err            # and where to fix it
+
+    assert cli.main(["--root", str(tmp_path), "plan", "--cadence", "monthly", "--shards", "20"]) == 0
+    assert cli.main(
+        ["--root", str(tmp_path), "plan", "--cadence", "weekly", "--shards", "20", "--allow-empty"]
+    ) == 0
+    assert capsys.readouterr().out.strip().endswith("[]")
+
+
+def test_plan_count_prints_only_the_number(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("WSS_CONTACT", "t +https://github.com/x")
+    write_source_yaml(tmp_path, "fixture.demo.alpha", "https://example.com/a", cadence="monthly")
+    write_source_yaml(tmp_path, "fixture.demo.beta", "https://example.com/b", cadence="monthly")
+    assert cli.main(["--root", str(tmp_path), "plan", "--cadence", "monthly", "--shards", "20", "--count"]) == 0
+    assert capsys.readouterr().out.strip() == "2"

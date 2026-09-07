@@ -79,7 +79,7 @@ def auth_headers(source: Source) -> dict[str, str]:
     """
     bearer_env = (source.auth or {}).get("bearer_env")
     if not bearer_env:
-        return {}
+        return _extra_auth_headers(source)
     secret = os.environ.get(bearer_env, "").strip()
     if not secret:
         raise CredentialMissing(
@@ -92,7 +92,28 @@ def auth_headers(source: Source) -> dict[str, str]:
     # key rejected) — so a Bearer-only client cannot authenticate there at all,
     # and the failure looks like a malformed request rather than a wrong scheme.
     scheme = (source.auth or {}).get("scheme", "Bearer")
-    return {"Authorization": f"{scheme} {secret}"}
+    return {"Authorization": f"{scheme} {secret}"} | _extra_auth_headers(source)
+
+
+def _extra_auth_headers(source: Source) -> dict[str, str]:
+    """`auth: {headers: {Header-Name: ENV_VAR}}` — arbitrary credential headers.
+
+    Some APIs do not use Authorization at all. FDA's Data Dashboard needs two
+    headers together (Authorization-User plus Authorization-Key), which no
+    single-header scheme can express. Values are env var NAMES; the secrets
+    themselves are read here and never logged or written to the manifest.
+    """
+    out: dict[str, str] = {}
+    for header, env_name in ((source.auth or {}).get("headers") or {}).items():
+        secret = os.environ.get(env_name, "").strip()
+        if not secret:
+            raise CredentialMissing(
+                f"{source.source_id} needs ${env_name} for header {header}, which is not set. "
+                f"Put it in {ENV_FILE} for local runs (never commit it), or set it "
+                f"as a repository secret for CI."
+            )
+        out[header] = secret
+    return out
 
 
 class FetchError(RuntimeError):
@@ -191,17 +212,29 @@ class Fetcher:
     ) -> FetchResult:
         host = urllib.parse.urlsplit(endpoint.url).netloc
         headers = dict(extra_headers or {})
-        if etag:
-            headers["If-None-Match"] = etag
-        if last_modified:
-            headers["If-Modified-Since"] = last_modified
+        # Conditional requests are a GET concept. A POST is not cacheable, gets
+        # no ETag, and can never answer 304 — sending If-None-Match there would
+        # be noise at best and a confusing 412 at worst. Change detection for
+        # POST falls back to hashing the body, which capture already does.
+        if endpoint.method == "GET":
+            if etag:
+                headers["If-None-Match"] = etag
+            if last_modified:
+                headers["If-Modified-Since"] = last_modified
+        payload = None
+        if endpoint.method == "POST":
+            payload = json.dumps(endpoint.body or {}, sort_keys=True, separators=(",", ":")).encode()
+            headers["Content-Type"] = "application/json"
         last_reason = "fetch_failed_unknown"
         for attempt in range(MAX_RETRIES + 1):
             if attempt:
                 time.sleep(self.retry_base * (2 ** (attempt - 1)))
             self._polite_wait(host, endpoint.delay_seconds)
             try:
-                resp = self.session.get(endpoint.url, headers=headers, timeout=endpoint.timeout_seconds)
+                resp = self.session.request(
+                    endpoint.method, endpoint.url, headers=headers,
+                    data=payload, timeout=endpoint.timeout_seconds,
+                )
             except requests.RequestException as exc:
                 self._mark(host)
                 last_reason = f"fetch_failed_{type(exc).__name__}"
@@ -247,7 +280,7 @@ def capture_source(
         fetched_at = iso_z(now_fn())
         rows = []
         for endpoint in source.endpoints:
-            row = _empty_row(source.source_id, endpoint.url, fetched_at) | {
+            row = _empty_row(source.source_id, endpoint.identity(), fetched_at) | {
                 "outcome": "error",
                 "reason": "missing_credential",
                 "warnings": str(exc).split(".")[0],
@@ -259,8 +292,8 @@ def capture_source(
     for endpoint in source.endpoints:
         fetched_dt = now_fn()
         fetched_at = iso_z(fetched_dt)
-        row = _empty_row(source.source_id, endpoint.url, fetched_at)
-        prev = manifest.last_capture(root, source.source_id, endpoint.url)
+        row = _empty_row(source.source_id, endpoint.identity(), fetched_at)
+        prev = manifest.last_capture(root, source.source_id, endpoint.identity())
         warnings: list[str] = []
 
         allowed, robots_warning = fetcher.robots_allows(endpoint.url, endpoint.delay_seconds)
@@ -426,7 +459,7 @@ def doctor(root: Path | str, source_id: str, log: Callable[[str], None] = print)
     ok_all = True
     for endpoint in source.endpoints:
         log("")
-        log(f"GET {endpoint.url}")
+        log(f"{endpoint.method} {endpoint.url}")
         allowed, robots_warning = fetcher.robots_allows(endpoint.url, endpoint.delay_seconds)
         if robots_warning:
             log(f"  robots   : warning — {robots_warning} (proceeding)")
@@ -454,7 +487,7 @@ def doctor(root: Path | str, source_id: str, log: Callable[[str], None] = print)
         for line in preview.splitlines():
             log(f"  {line}")
         log("  " + "─" * 63)
-        prev = manifest.last_capture(root, source.source_id, endpoint.url)
+        prev = manifest.last_capture(root, source.source_id, endpoint.identity())
         prev_length = int(prev["content_length"]) if prev and prev.get("content_length") else None
         gate = run_gates(
             status_code=res.status,

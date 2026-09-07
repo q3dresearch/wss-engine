@@ -33,7 +33,7 @@ GATE_KEYS = (
     "must_not_contain",
     "max_shrink_pct",
 )
-ENDPOINT_KEYS = ("url", "delay_seconds", "timeout_seconds")
+ENDPOINT_KEYS = ("url", "delay_seconds", "timeout_seconds", "method", "body")
 REQUIRED_KEYS = (
     "source_id",
     "status",
@@ -50,7 +50,7 @@ REQUIRED_KEYS = (
 )
 OPTIONAL_KEYS = ("notes", "tags", "auth", "dedupe_ignore")
 
-AUTH_KEYS = ("bearer_env", "scheme")
+AUTH_KEYS = ("bearer_env", "scheme", "headers")
 ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 # Credentials belong in a header, never in a URL: the manifest records every
 # URL verbatim and forever, so a key in a query string is a permanent leak.
@@ -72,6 +72,27 @@ class Endpoint:
     url: str
     delay_seconds: float = 1.0
     timeout_seconds: float = 30.0
+    # A POST endpoint's body is part of its identity: the same URL with two
+    # different bodies is two different fetches, and the manifest keys on URL
+    # alone. body_key() below is what keeps them apart.
+    method: str = "GET"
+    body: dict | None = None
+
+    def body_key(self) -> str:
+        """Stable short hash of the request body, or '' for a plain GET.
+
+        Appended to the manifest's url column so paged or parameterised POSTs
+        cannot overwrite each other's history under one shared URL.
+        """
+        if not self.body:
+            return ""
+        import hashlib, json as _json
+        blob = _json.dumps(self.body, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(blob.encode()).hexdigest()[:12]
+
+    def identity(self) -> str:
+        k = self.body_key()
+        return f"{self.url}#body={k}" if k else self.url
 
 
 @dataclass(frozen=True)
@@ -150,6 +171,19 @@ def _validate_auth(auth: object, problems: list[str], where: str) -> None:
                 f"(upper snake case), not a credential"
             )
     _validate_scheme(auth, problems, where)
+    hdrs = auth.get("headers")
+    if hdrs is not None:
+        if not isinstance(hdrs, dict) or not hdrs:
+            problems.append(f"{where}: auth.headers must be a non-empty mapping of Header-Name: ENV_VAR")
+        else:
+            for hname, envname in hdrs.items():
+                if not isinstance(hname, str) or not hname or " " in hname:
+                    problems.append(f"{where}: auth.headers key {hname!r} is not a header name")
+                if not isinstance(envname, str) or not ENV_NAME_RE.match(envname or ""):
+                    problems.append(
+                        f"{where}: auth.headers[{hname!r}] must be an environment variable NAME "
+                        f"(upper snake case), not a credential"
+                    )
 
 
 def _validate_scheme(auth: dict, problems: list[str], where: str) -> None:
@@ -193,7 +227,25 @@ def _validate_endpoints(endpoints: object, problems: list[str], where: str) -> l
         if not isinstance(timeout, (int, float)) or timeout <= 0:
             problems.append(f"{ep_where}: timeout_seconds must be a positive number")
             timeout = 30.0
-        parsed.append(Endpoint(url=url, delay_seconds=float(delay), timeout_seconds=float(timeout)))
+        method = str(ep.get("method", "GET")).upper()
+        if method not in ("GET", "POST"):
+            problems.append(f"{ep_where}: method must be GET or POST")
+            method = "GET"
+        body = ep.get("body")
+        if body is not None and not isinstance(body, dict):
+            problems.append(f"{ep_where}: body must be a mapping (it is sent as JSON)")
+            body = None
+        if body is not None and method != "POST":
+            problems.append(f"{ep_where}: body is only sent on POST; set method: POST")
+        # A credential belongs in a header, never in a body the manifest may
+        # later be asked to explain. Same rule already enforced for URLs.
+        if body is not None and SECRET_IN_URL_RE.search(json.dumps(body)):
+            problems.append(
+                f"{ep_where}: body looks like it carries a credential. "
+                f"Use `auth: {{headers: {{Header-Name: ENV_VAR}}}}` instead"
+            )
+        parsed.append(Endpoint(url=url, delay_seconds=float(delay), timeout_seconds=float(timeout),
+                               method=method, body=body))
     return parsed
 
 

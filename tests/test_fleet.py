@@ -20,6 +20,7 @@ def make_repo(
     pin: str = "v0.6.4",
     sources: int = 2,
     health: bool = True,
+    swallow_plan: bool = False,
 ) -> Path:
     repo = root / name
     (repo / ".github" / "workflows").mkdir(parents=True)
@@ -29,6 +30,11 @@ def make_repo(
         ids.append(sid)
         write_source_yaml(repo, sid, f"https://example.com/{i}", cadence=cadence)
 
+    plan_step = (
+        'echo "shards=$(wss plan --cadence $CADENCE)" >> "$GITHUB_OUTPUT"'
+        if swallow_plan
+        else 'shards=$(wss plan --cadence $CADENCE)'
+    )
     (repo / ".github" / "workflows" / f"capture-{cadence}.yml").write_text(
         textwrap.dedent(
             f"""\
@@ -39,6 +45,10 @@ def make_repo(
             env:
               CADENCE: {workflow_cadence or cadence}
               ENGINE_SPEC: "wss @ git+https://github.com/o/wss-engine.git@{pin}"
+            jobs:
+              plan:
+                steps:
+                  - run: {plan_step}
             """
         )
     )
@@ -164,3 +174,18 @@ def test_an_invalid_registry_is_dead_and_says_so(tmp_path):
     findings = fleet.scan(fleet.find_repos(tmp_path))
     assert findings[0].kind == "registry_invalid"
     assert findings[0].severity == "dead"
+
+
+def test_a_plan_step_that_swallows_its_exit_code_is_drift(tmp_path):
+    """`echo "shards=$(wss plan ...)"` returns echo's status, so every guard
+    inside plan is discarded and an empty matrix still reads as a green run."""
+    make_repo(tmp_path, "wss-alpha", swallow_plan=True)
+    findings = fleet.scan(fleet.find_repos(tmp_path))
+    swallowed = [f for f in findings if f.kind == "plan_exit_swallowed"]
+    assert len(swallowed) == 1
+    assert "assign first" in swallowed[0].decision
+
+
+def test_the_assigned_form_is_not_flagged(tmp_path):
+    make_repo(tmp_path, "wss-alpha", swallow_plan=False)
+    assert fleet.scan(fleet.find_repos(tmp_path)) == []

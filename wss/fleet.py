@@ -76,6 +76,10 @@ def _workflows(repo: Path) -> dict[str, dict]:
             "cron": cron.group(1) if cron else None,
             "cadence": cadence.group(1) if cadence else None,
             "pin": pin.group(1) if pin else None,
+            # `echo "shards=$(wss plan ...)"` reports echo's exit status, so a
+            # failing plan looks like a passing step. Any guard inside plan is
+            # discarded by it.
+            "swallows_plan": bool(re.search(r'echo\s+"[^"]*\$\(\s*wss\s+plan', text)),
         }
     return out
 
@@ -133,6 +137,12 @@ def scan_repo(repo: Path) -> list[Finding]:
                                  f"the registry declares {', '.join(have) or 'nothing'}",
                                  f"set CADENCE to one the registry uses ({', '.join(have) or 'n/a'}) "
                                  "-- this workflow is green and capturing nothing"))
+        if wf.get("swallows_plan"):
+            found.append(Finding("drift", "plan_exit_swallowed", name, fname,
+                                 'the plan step wraps `wss plan` in echo "...=$(...)", '
+                                 "so its exit status is echo's and a failed plan reads as success",
+                                 "assign first (`shards=$(wss plan ...)`) -- otherwise every guard "
+                                 "inside plan is discarded and an empty matrix stays green"))
         stem = fname[len("capture-"):].removesuffix(".yml")
         if cadence and stem != cadence:
             found.append(Finding("drift", "cadence_mismatch", name, fname,

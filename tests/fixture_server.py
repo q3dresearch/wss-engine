@@ -23,6 +23,30 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_POST(self):  # noqa: N802
+        """Record the body too — a POST's identity is url + body, not url."""
+        n = int(self.headers.get("Content-Length") or 0)
+        body = self.rfile.read(n) if n else b""
+        fixtures = self.server.fixtures  # type: ignore[attr-defined]
+        fixtures.requests.append((self.path, dict(self.headers)))
+        fixtures.bodies.append(body)
+        self._respond()
+
+    def _respond(self):
+        fixtures = self.server.fixtures  # type: ignore[attr-defined]
+        route = fixtures.routes.get(self.path)
+        if route is None:
+            self.send_response(404)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"not found")
+            return
+        status, content_type, body = route
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.end_headers()
+        self.wfile.write(body)
+
     def log_message(self, *args):  # silence
         pass
 
@@ -31,6 +55,7 @@ class FixtureServer:
     def __init__(self):
         self.routes: dict[str, tuple[int, str, bytes]] = {}
         self.requests: list[tuple[str, dict]] = []
+        self.bodies: list[bytes] = []
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
 

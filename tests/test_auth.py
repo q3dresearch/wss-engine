@@ -163,3 +163,79 @@ def test_the_secret_is_still_never_in_the_scheme_error(tmp_path, monkeypatch):
     with pytest.raises(capture.CredentialMissing) as exc:
         capture.auth_headers(src)
     assert SECRET not in str(exc.value)
+
+
+def _post_source(root, url, body, *, headers=None):
+    path = write_source_yaml(root, "demo.api.post", url)
+    text = path.read_text()
+    text = text.replace(f"  - url: {url}\n",
+                        f"  - url: {url}\n    method: POST\n    body:\n"
+                        + "".join(f"      {k}: {v}\n" for k, v in body.items()))
+    if headers:
+        text += "\nauth:\n  headers:\n" + "".join(f"    {h}: {e}\n" for h, e in headers.items())
+    path.write_text(text)
+    return registry.load_registry(root)
+
+
+@pytest.mark.usefixtures("contact_env")
+def test_post_sends_the_body_and_content_type(tmp_path):
+    with FixtureServer() as srv:
+        srv.allow_all_robots()
+        srv.set("/q", BODY)
+        _post_source(tmp_path, f"{srv.url}/q", {"rows": 5000, "sort": "RefusalDate"})
+        assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "weekly"]) == 0
+        assert srv.bodies, "no POST body reached the server"
+        sent = json.loads(srv.bodies[-1])
+        assert sent == {"rows": 5000, "sort": "RefusalDate"}
+        ctypes = [h.get("Content-Type") for _, h in srv.requests if h.get("Content-Type")]
+        assert "application/json" in ctypes
+
+
+@pytest.mark.usefixtures("contact_env")
+def test_two_headers_are_both_sent(tmp_path, monkeypatch):
+    # FDA's Data Dashboard needs Authorization-User AND Authorization-Key
+    # together; no single-header scheme can express that.
+    monkeypatch.setenv("WSS_U", "someone@example.com")
+    monkeypatch.setenv("WSS_K", SECRET)
+    with FixtureServer() as srv:
+        srv.allow_all_robots()
+        srv.set("/q", BODY)
+        _post_source(tmp_path, f"{srv.url}/q", {"rows": 1},
+                     headers={"Authorization-User": "WSS_U", "Authorization-Key": "WSS_K"})
+        assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "weekly"]) == 0
+        hdrs = [h for p, h in srv.requests if p == "/q"][-1]
+        assert hdrs["Authorization-User"] == "someone@example.com"
+        assert hdrs["Authorization-Key"] == SECRET
+
+
+@pytest.mark.usefixtures("contact_env")
+def test_post_never_sends_a_conditional_header(tmp_path):
+    # A POST is not cacheable and can never answer 304; If-None-Match there is
+    # noise at best and a 412 at worst.
+    with FixtureServer() as srv:
+        srv.allow_all_robots()
+        srv.set("/q", BODY)
+        _post_source(tmp_path, f"{srv.url}/q", {"rows": 1})
+        for _ in range(2):  # second run is where a GET would send If-None-Match
+            cli.main(["--root", str(tmp_path), "capture", "--cadence", "weekly"])
+        for path, h in srv.requests:
+            if path == "/q":
+                assert "If-None-Match" not in h and "If-Modified-Since" not in h
+
+
+def test_same_url_different_bodies_are_different_fetches(tmp_path):
+    from wss.registry import Endpoint
+    a = Endpoint(url="https://x.invalid/q", method="POST", body={"rows": 1})
+    b = Endpoint(url="https://x.invalid/q", method="POST", body={"rows": 2})
+    plain = Endpoint(url="https://x.invalid/q")
+    assert a.identity() != b.identity(), "paged POSTs would overwrite each other's history"
+    assert plain.identity() == "https://x.invalid/q", "a GET's identity must stay the bare URL"
+
+
+def test_body_requires_post(tmp_path):
+    path = write_source_yaml(tmp_path, "demo.api.thing", "https://example.invalid/x")
+    path.write_text(path.read_text().replace(
+        "  - url: https://example.invalid/x\n",
+        "  - url: https://example.invalid/x\n    body:\n      rows: 1\n"))
+    with pytest.raises(registry.RegistryError, match="only sent on POST"):
+        registry.load_registry(tmp_path)
