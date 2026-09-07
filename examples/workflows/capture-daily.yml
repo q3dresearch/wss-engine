@@ -50,7 +50,11 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     env:
-      WSS_CONTACT: ${{ secrets.WSS_CONTACT }}
+      # No setup required. GitHub supplies the owner and repo, so this
+      # identifies the capture correctly with nothing to configure —
+      # and a FORK automatically sends its own owner, never yours.
+      # Set a WSS_CONTACT secret only to override (e.g. a role email).
+      WSS_CONTACT: ${{ secrets.WSS_CONTACT || format('{0} +https://github.com/{1}', github.repository_owner, github.repository) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
