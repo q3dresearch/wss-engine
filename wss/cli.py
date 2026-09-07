@@ -18,8 +18,8 @@ import sys
 from pathlib import Path
 
 from . import (
-    __version__, capture, datapage, derive, explore, health, init, registry,
-    sources,
+    __version__, capture, datapage, derive, explore, fleet, health, init,
+    registry, sources,
 )
 
 
@@ -111,6 +111,12 @@ def cmd_derive(args: argparse.Namespace, root: Path) -> int:
     return 0
 
 
+def cmd_fleet_scan(args: argparse.Namespace, root: Path) -> int:
+    out, code = fleet.run_scan(args.dir or root, as_json=args.json, fail_on=args.fail_on)
+    print(out)
+    return code
+
+
 def cmd_doctor(args: argparse.Namespace, root: Path) -> int:
     return capture.doctor(root, args.source_id)
 
@@ -176,6 +182,18 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("doctor", help="dry-run one source and print the raw response")
     p.add_argument("source_id")
 
+    p = sub.add_parser(
+        "fleet-scan",
+        help="inspect every repo under a directory and print the decisions waiting",
+    )
+    p.add_argument("--dir", help="directory holding the repo checkouts (default: --root)")
+    p.add_argument("--json", action="store_true", help="machine-readable findings")
+    p.add_argument(
+        "--fail-on",
+        choices=fleet.SEVERITY,
+        help="exit 1 if any finding is at this severity or worse",
+    )
+
     return parser
 
 
@@ -194,6 +212,7 @@ def main(argv: list[str] | None = None) -> int:
         "health": cmd_health,
         "derive": cmd_derive,
         "doctor": cmd_doctor,
+        "fleet-scan": cmd_fleet_scan,
         "sources": cmd_sources,
         "datapage": cmd_datapage,
     }
