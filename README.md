@@ -6,14 +6,14 @@
 
 <div align="center">
 
-  <a href="https://github.com/neldivad/wss-engine/actions/workflows/test.yml"><img alt="tests status" src="https://img.shields.io/github/actions/workflow/status/neldivad/wss-engine/test.yml?label=tests&style=flat-square"></a>
-  <a href="https://github.com/neldivad/wss-engine/blob/main/LICENSE"><img alt="licence" src="https://img.shields.io/github/license/neldivad/wss-engine?style=flat-square"></a>
-  <a href="https://github.com/neldivad/wss-engine"><img alt="stars" src="https://img.shields.io/github/stars/neldivad/wss-engine?style=social"></a>
+  <a href="https://github.com/q3dresearch/wss-engine/actions/workflows/test.yml"><img alt="tests status" src="https://img.shields.io/github/actions/workflow/status/q3dresearch/wss-engine/test.yml?label=tests&style=flat-square"></a>
+  <a href="https://github.com/q3dresearch/wss-engine/blob/main/LICENSE"><img alt="licence" src="https://img.shields.io/github/license/q3dresearch/wss-engine?style=flat-square"></a>
+  <a href="https://github.com/q3dresearch/wss-engine"><img alt="stars" src="https://img.shields.io/github/stars/q3dresearch/wss-engine?style=social"></a>
 
 </div>
 
 <p align="center">
-  <sub>fleet: <strong>engine</strong> · <a href="https://github.com/neldivad/wss-hugging-face">hugging face</a> · <a href="https://github.com/neldivad/wss-openrouter">openrouter</a> · <a href="https://github.com/neldivad/wss-cloud-footprint">cloud footprint</a> · <a href="https://github.com/neldivad/wss-mining-pipeline">mining</a> · <a href="https://github.com/neldivad/wss-forest-harvest">forest</a> · <a href="https://github.com/neldivad/wss-food-trace">food</a></sub>
+  <sub>fleet: <strong>engine</strong> · <a href="https://github.com/q3dresearch/wss-hugging-face">hugging face</a> · <a href="https://github.com/q3dresearch/wss-openrouter">openrouter</a> · <a href="https://github.com/q3dresearch/wss-cloud-footprint">cloud footprint</a> · <a href="https://github.com/q3dresearch/wss-mining-pipeline">mining</a> · <a href="https://github.com/q3dresearch/wss-forest-harvest">forest</a> · <a href="https://github.com/q3dresearch/wss-food-trace">food</a></sub>
 </p>
 
 It archives responses **verbatim**, keeps an append-only manifest as the
@@ -22,9 +22,9 @@ archive — never from the live web. ("Snapshots" as in captured bytes, not
 screenshots: HTML, JSON, CSV, whatever the page returns.)
 
 The engine holds **no data, ever**. A *domain repo*
-([wss-hugging-face](https://github.com/neldivad/wss-hugging-face),
-[wss-openrouter](https://github.com/neldivad/wss-openrouter),
-[wss-cloud-footprint](https://github.com/neldivad/wss-cloud-footprint)) holds a
+([wss-hugging-face](https://github.com/q3dresearch/wss-hugging-face),
+[wss-openrouter](https://github.com/q3dresearch/wss-openrouter),
+[wss-cloud-footprint](https://github.com/q3dresearch/wss-cloud-footprint)) holds a
 registry of sources, runs this CLI from a few scheduled workflows, and commits
 what comes back. The design target is 1,000+ collections managed by one
 person, so the binding constraint is human attention.
@@ -55,7 +55,7 @@ wrong.
 ## Using it
 
 ```bash
-pip install "wss @ git+https://github.com/neldivad/wss-engine.git@v0.5.8"
+pip install "wss @ git+https://github.com/q3dresearch/wss-engine.git@v0.5.8"
 
 wss explore <url>                     # case a site before writing anything
 wss init ../wss-yoursite --owner me   # scaffold a domain repo
