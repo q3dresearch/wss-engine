@@ -61,6 +61,11 @@ def cmd_validate(args: argparse.Namespace, root: Path) -> int:
 
 def cmd_plan(args: argparse.Namespace, root: Path) -> int:
     sources = registry.load_registry(root)
+    # Fail here, once, rather than identically in every shard. A missing
+    # contact took out four repos after an org move and surfaced as N
+    # indistinguishable shard failures at the bottom of the run; plan is the
+    # first job, so one line at the top is the whole diagnosis.
+    capture.contact_from_env()
     shards = registry.plan(sources, args.cadence, args.shards)
     count = len(registry.select(sources, cadence=args.cadence))
     _err(f"# {args.cadence}: {count} active source(s) across {len(shards)} non-empty shard(s) of {args.shards}")

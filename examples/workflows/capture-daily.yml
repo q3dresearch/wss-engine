@@ -19,6 +19,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  # Workflow-level so EVERY job has it, not just capture. `wss plan` now
+  # checks it too, so the run fails once at the top instead of identically
+  # in every shard. No setup required: GitHub supplies owner and repo, and
+  # a fork sends its own. Set a WSS_CONTACT secret only to override.
+  WSS_CONTACT: ${{ secrets.WSS_CONTACT || format('{0} +https://github.com/{1}', github.repository_owner, github.repository) }}
   CADENCE: daily
   SHARDS: "20" # matrix cap is 256 jobs/run — aim for ~20 jobs of ~50 sources
   ENGINE_SPEC: "wss @ git+https://github.com/OWNER/wss-engine.git@v0.1.0"
@@ -50,11 +55,6 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     env:
-      # No setup required. GitHub supplies the owner and repo, so this
-      # identifies the capture correctly with nothing to configure —
-      # and a FORK automatically sends its own owner, never yours.
-      # Set a WSS_CONTACT secret only to override (e.g. a role email).
-      WSS_CONTACT: ${{ secrets.WSS_CONTACT || format('{0} +https://github.com/{1}', github.repository_owner, github.repository) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
