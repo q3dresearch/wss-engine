@@ -87,7 +87,12 @@ def auth_headers(source: Source) -> dict[str, str]:
             f"Put it in {ENV_FILE} for local runs (never commit it), or set it "
             f"as a repository secret for CI."
         )
-    return {"Authorization": f"Bearer {secret}"}
+    # Not every publisher speaks Bearer. PeeringDB answers `Bearer <key>` with
+    # 400 (scheme not understood) and `Api-Key <key>` with 401 (understood,
+    # key rejected) — so a Bearer-only client cannot authenticate there at all,
+    # and the failure looks like a malformed request rather than a wrong scheme.
+    scheme = (source.auth or {}).get("scheme", "Bearer")
+    return {"Authorization": f"{scheme} {secret}"}
 
 
 class FetchError(RuntimeError):
@@ -413,7 +418,8 @@ def doctor(root: Path | str, source_id: str, log: Callable[[str], None] = print)
         log(str(exc))
         return 1
     if credentials:
-        log(f"auth      : Authorization: Bearer <${source.auth['bearer_env']}>  (value never printed)")
+        _scheme = source.auth.get("scheme", "Bearer")
+        log(f"auth      : Authorization: {_scheme} <${source.auth['bearer_env']}>  (value never printed)")
     log(f"source_id : {source.source_id}")
     log(f"status    : {source.status}   cadence: {source.cadence}   storage: {source.storage}")
     log(f"schema_id : {source.schema_id}   publisher: {source.publisher} ({source.publisher_tier})")

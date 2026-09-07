@@ -126,3 +126,40 @@ def test_auth_block_is_optional_and_typo_checked(tmp_path):
     path = write_source_yaml(tmp_path, "demo.api.thing", "https://example.com/v1/other")
     path.write_text(path.read_text() + "\nauth:\n  bearer_token: WSS_DEMO_KEY\n")
     assert any("unknown auth key" in p for p in registry.validate_registry(tmp_path))
+
+
+def _source_with_auth(tmp_path, **auth):
+    path = write_source_yaml(tmp_path, "demo.api.thing", "https://example.invalid/x")
+    block = "\nauth:\n" + "".join(f"  {k}: {v}\n" for k, v in auth.items())
+    path.write_text(path.read_text() + block)
+    return registry.load_registry(tmp_path)[0]
+
+
+def test_scheme_defaults_to_bearer(tmp_path, monkeypatch):
+    monkeypatch.setenv("WSS_DEMO_KEY", SECRET)
+    src = _source_with_auth(tmp_path, bearer_env="WSS_DEMO_KEY")
+    assert capture.auth_headers(src) == {"Authorization": f"Bearer {SECRET}"}
+
+
+def test_scheme_overrides_the_prefix(tmp_path, monkeypatch):
+    # PeeringDB answers Bearer with 400 and Api-Key with 401: a Bearer-only
+    # client cannot authenticate there, and the 400 reads as a malformed
+    # request rather than as the wrong scheme it is.
+    monkeypatch.setenv("WSS_DEMO_KEY", SECRET)
+    src = _source_with_auth(tmp_path, bearer_env="WSS_DEMO_KEY", scheme="Api-Key")
+    assert capture.auth_headers(src) == {"Authorization": f"Api-Key {SECRET}"}
+
+
+def test_scheme_without_a_credential_is_rejected(tmp_path):
+    path = write_source_yaml(tmp_path, "demo.api.thing", "https://example.invalid/x")
+    path.write_text(path.read_text() + "\nauth:\n  scheme: Api-Key\n")
+    with pytest.raises(registry.RegistryError, match="no effect without bearer_env"):
+        registry.load_registry(tmp_path)
+
+
+def test_the_secret_is_still_never_in_the_scheme_error(tmp_path, monkeypatch):
+    monkeypatch.delenv("WSS_DEMO_KEY", raising=False)
+    src = _source_with_auth(tmp_path, bearer_env="WSS_DEMO_KEY", scheme="Api-Key")
+    with pytest.raises(capture.CredentialMissing) as exc:
+        capture.auth_headers(src)
+    assert SECRET not in str(exc.value)

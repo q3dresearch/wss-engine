@@ -46,7 +46,7 @@ REQUIRED_KEYS = (
 )
 OPTIONAL_KEYS = ("notes", "tags", "auth", "dedupe_ignore")
 
-AUTH_KEYS = ("bearer_env",)
+AUTH_KEYS = ("bearer_env", "scheme")
 ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 # Credentials belong in a header, never in a URL: the manifest records every
 # URL verbatim and forever, so a key in a query string is a permanent leak.
@@ -123,7 +123,13 @@ def _validate_gates(gates: object, problems: list[str], where: str) -> None:
 
 
 def _validate_auth(auth: object, problems: list[str], where: str) -> None:
-    """`auth: {bearer_env: VAR}` — the *name* of an env var, never a secret."""
+    """`auth: {bearer_env: VAR, scheme: Bearer}` — a NAME, never a secret.
+
+    `scheme` is the Authorization prefix and defaults to Bearer. It exists
+    because publishers disagree: PeeringDB requires `Api-Key`, and sending
+    Bearer there returns 400, which reads as a broken request rather than as
+    the wrong auth scheme it actually is.
+    """
     if auth is None:
         return
     if not isinstance(auth, dict) or not auth:
@@ -139,6 +145,17 @@ def _validate_auth(auth: object, problems: list[str], where: str) -> None:
                 f"{where}: bearer_env must be an environment variable NAME "
                 f"(upper snake case), not a credential"
             )
+    _validate_scheme(auth, problems, where)
+
+
+def _validate_scheme(auth: dict, problems: list[str], where: str) -> None:
+    scheme = auth.get("scheme")
+    if scheme is None:
+        return
+    if not isinstance(scheme, str) or not scheme.isascii() or " " in scheme or not scheme:
+        problems.append(f"{where}: scheme must be a single Authorization prefix, e.g. Api-Key")
+    if "scheme" in auth and "bearer_env" not in auth:
+        problems.append(f"{where}: scheme has no effect without bearer_env")
 
 
 def _validate_endpoints(endpoints: object, problems: list[str], where: str) -> list[Endpoint]:
