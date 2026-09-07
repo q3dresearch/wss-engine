@@ -69,6 +69,11 @@ def _workflows(repo: Path) -> dict[str, dict]:
     wf_dir = repo / ".github" / "workflows"
     for path in sorted(wf_dir.glob("*.yml")) if wf_dir.is_dir() else []:
         text = path.read_text(encoding="utf-8", errors="replace")
+        # Comments explaining a bad pattern quote it verbatim, so match against
+        # the code only -- otherwise documenting the fix re-triggers the finding.
+        code = "\n".join(
+            line for line in text.splitlines() if not line.lstrip().startswith("#")
+        )
         cron = re.search(r"""cron:\s*['"]([^'"]+)['"]""", text)
         cadence = re.search(r"^\s*CADENCE:\s*(\S+)", text, re.M)
         pin = re.search(r"wss-engine\.git@(v[\d.]+)", text)
@@ -79,7 +84,7 @@ def _workflows(repo: Path) -> dict[str, dict]:
             # `echo "shards=$(wss plan ...)"` reports echo's exit status, so a
             # failing plan looks like a passing step. Any guard inside plan is
             # discarded by it.
-            "swallows_plan": bool(re.search(r'echo\s+"[^"]*\$\(\s*wss\s+plan', text)),
+            "swallows_plan": bool(re.search(r'echo\s+"[^"]*\$\(\s*wss\s+plan', code)),
         }
     return out
 

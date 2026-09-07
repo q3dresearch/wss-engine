@@ -189,3 +189,18 @@ def test_a_plan_step_that_swallows_its_exit_code_is_drift(tmp_path):
 def test_the_assigned_form_is_not_flagged(tmp_path):
     make_repo(tmp_path, "wss-alpha", swallow_plan=False)
     assert fleet.scan(fleet.find_repos(tmp_path)) == []
+
+
+def test_a_comment_quoting_the_bad_pattern_is_not_a_finding(tmp_path):
+    """The fix ships with a comment showing what not to do. Matching it would
+    make every correctly-fixed repo report the defect it just fixed."""
+    repo = make_repo(tmp_path, "wss-alpha", swallow_plan=False)
+    wf = repo / ".github" / "workflows" / "capture-weekly.yml"
+    wf.write_text(
+        wf.read_text().replace(
+            "  - run: shards=$(wss plan --cadence $CADENCE)",
+            '  # never `echo "shards=$(wss plan ...)"` -- that returns echo\'s status\n'
+            "  - run: shards=$(wss plan --cadence $CADENCE)",
+        )
+    )
+    assert [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "plan_exit_swallowed"] == []
