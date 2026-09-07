@@ -69,6 +69,40 @@ binds.
 Last-Modified). When it does, an unchanged fetch costs a 304 and no body —
 polling is cheap for both sides.
 
+### 3b. What is the base rate, and did most of it already happen?
+
+Cheap, decisive, and the one most often skipped: **before designing a capture,
+measure how often the thing you would record actually changes — and whether the
+change you care about has already finished.**
+
+Most sources expose enough to answer this from a *single* fetch. A field like
+`last_updated` gives you the whole distribution at once, with no archive and no
+waiting.
+
+The worked example that killed a candidate. Public open-data catalogues expose
+`data_updated_at` per dataset, and the plan was to watch for schema drift and
+abandonment. One sample of 4,000 datasets:
+
+| | |
+|---|---|
+| no data update in over 3 years | **46.4%** |
+| updated in the last 30 days | 20.5% |
+| median staleness | **2.2 years** |
+
+Half the catalogue was already abandoned, at a median of over two years. The
+process was not *upcoming*, it was **largely complete** — an archive begun that
+day would record the tail and miss the event.
+
+Two rules come out of it:
+
+- **Arriving late is a real failure mode, and it is invisible from the source
+  itself.** A page that looks live and returns 200 tells you nothing about
+  whether the interesting transitions already occurred.
+- **If one snapshot answers the question, it is `larder/`, not `wss/`.**
+  "Half of open data is abandoned" needs no history at all. History buys only
+  two things: **disappearance**, and **the date a change happened**. If neither
+  is the question, stop here.
+
 ### 4. Does the payload carry its own "as of" date?
 
 If yes, the parser should set `observed_at` from it. This matters most where
