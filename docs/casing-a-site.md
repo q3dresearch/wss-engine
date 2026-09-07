@@ -55,7 +55,24 @@ HTML would have been. Your browser's network tab finds the rest.
 
 ### 3. What is the natural cadence?
 
-**Match the decision cycle, not the data's volatility.** If the series informs
+**Default monthly. Weekly is the floor, quarterly for slow or meta-level
+processes, and daily essentially never.**
+
+Match the decision cycle, not the data's volatility — those come apart, and
+volatility is the tempting one. `wss-hugging-face` captures daily and finds
+changed content **88% of the time**, so the data really does move every day.
+Nobody makes a daily decision on it: every recipe reading it asks a monthly or
+quarterly question. What the daily cadence buys is 4.7 MB/day of storage and a
+1 GB repo in seven months; at weekly the same series is ~0.7 MB/day and four
+years.
+
+A missed wss capture is unrecoverable, so the instinct is to sample fast. But
+the loss from sampling slowly is a *transition you did not see*, and that is
+bounded by the lifespan of the thing being watched — not by how often its bytes
+change. Pick the cadence from how long a state persists, not from how often the
+page differs.
+
+If the series informs
 a quarterly decision, weekly gives twelve observations per decision — plenty,
 and a tenth of the data to manage. Daily is for trade-grade signals, which are
 a different game (zero-sum, latency-sensitive) than decision-grade ones.
@@ -102,6 +119,51 @@ Two rules come out of it:
   "Half of open data is abandoned" needs no history at all. History buys only
   two things: **disappearance**, and **the date a change happened**. If neither
   is the question, stop here.
+
+### 3c. Is it a counted event or a survey of institutions?
+
+3b measures staleness that already happened. This one predicts staleness that
+has not happened yet, from the shape of the thing being measured.
+
+> **A counted event is a durable capture target. A survey of institutions is
+> not.**
+
+Counts arrive as a by-product of operations — deaths get registered, cases get
+notified, doses get administered — so they keep arriving whether or not anyone
+is funding a data programme. An inventory of what institutions *have* requires
+someone to commission a round of asking, and when that funding stops the
+indicator freezes at whatever the last round said. It stays in the catalogue
+looking live.
+
+Measured on WHO's Global Health Observatory, 48 active indicators against 199
+untouched for over four years:
+
+| shape | active | dormant >4y |
+|---|---|---|
+| counted / measured | **56%** | 19% |
+| policy inventory | 4% | **17%** |
+
+The dormant names say it plainly — *"Existence of operational policy/strategy/
+action plan for hearing health"*, *"National treatment policy for alcohol use
+disorders"*, *"Health warning labels on alcohol containers"*. Each needs 194
+governments asked about their own laws. The active ones are *estimated malaria
+cases*, *TB treatment coverage*, *adolescent birth rate*, *pharmacists per
+10,000*.
+
+**Three ways an indicator dies, and only the first is about the subject:**
+
+- **Survey burden** — nobody funded the next round. The common case.
+- **Model obsolescence** — attributable-burden figures (*"Deaths attributable
+  to the environment"*) need a methodology refresh, which is a research project
+  rather than a pipeline.
+- **Succession** — it moved custodian. *"Age-standardized death rates, colon and
+  rectum cancers"* is dormant 13 years at WHO because cancer registration went
+  to IARC. It did not die, it emigrated — and a capture pointed at the old home
+  archives a fossil while the live series runs elsewhere.
+
+**So check the shape before the cadence.** A source can pass 3b today — recently
+updated, healthy — and still be an inventory whose next round is unfunded. The
+question is not when it last moved, but whether anything makes it move again.
 
 ### 4. Does the payload carry its own "as of" date?
 
