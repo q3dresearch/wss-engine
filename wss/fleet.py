@@ -30,6 +30,13 @@ from . import registry
 SEVERITY = ("dead", "blind", "rot", "drift")
 
 STALE_FACTOR = 2.0        # staleness beyond 2x the promised interval is a stall
+# Majors still shipping a Node 20 entrypoint. GitHub force-runs them on Node 24
+# and warns on every job; the warning becomes an error on its own schedule, and
+# a fleet only finds out when every repo breaks at once.
+NODE20_ACTIONS = {
+    "actions/checkout": 4, "actions/setup-python": 5,
+    "actions/upload-artifact": 4, "actions/download-artifact": 4,
+}
 GATE_ROT_RATE = 0.50      # half the fetches quarantined = the page has moved on
 
 
@@ -84,6 +91,8 @@ def _workflows(repo: Path) -> dict[str, dict]:
             # `echo "shards=$(wss plan ...)"` reports echo's exit status, so a
             # failing plan looks like a passing step. Any guard inside plan is
             # discarded by it.
+            "uses": re.findall(r"uses:\s*([\w./-]+)@v(\d+)", code),
+            "has_timeout": bool(re.search(r"^\s*timeout-minutes:", code, re.M)),
             "swallows_plan": bool(re.search(r'echo\s+"[^"]*\$\(\s*wss\s+plan', code)),
         }
     return out
@@ -167,6 +176,28 @@ def scan_repo(repo: Path) -> list[Finding]:
                                  f"fires every ~{period:.0f}h against a capture that changes every ~{fastest:.0f}h",
                                  f"slow {fname} to the capture cadence -- the extra runs cannot find new data"))
 
+    # --- will the runner still accept this next month? ---
+    stale = {}
+    no_timeout = []
+    for fname, wf in workflows.items():
+        if not wf.get("has_timeout"):
+            no_timeout.append(fname)
+        for action, major in wf.get("uses", []):
+            floor = NODE20_ACTIONS.get(action)
+            if floor is not None and int(major) <= floor:
+                stale.setdefault(f"{action}@v{major}", []).append(fname)
+    for pinned, files in sorted(stale.items()):
+        found.append(Finding("drift", "node20_action", name, pinned,
+                             f"used by {len(files)} workflow(s): {', '.join(sorted(files))}",
+                             "bump the major -- GitHub force-runs Node 20 actions on Node 24 "
+                             "today and warns; when it stops, every repo breaks at once"))
+    if no_timeout:
+        found.append(Finding("drift", "no_timeout", name,
+                             ", ".join(sorted(no_timeout)),
+                             f"{len(no_timeout)} workflow(s) set no timeout-minutes",
+                             "a hung fetch burns the 6-hour default before anyone notices -- "
+                             "set a ceiling that matches how long the job should take"))
+
     # --- what does the last committed run say it did? ---
     # Config parsing infers whether a capture *would* select anything; this is
     # the run's own account of what it actually planned, in git, after the fact.
@@ -236,6 +267,26 @@ def scan(repos: list[Path]) -> list[Finding]:
                 found.append(Finding("drift", "pin_skew", repo_name, repo_name,
                                      f"engine {pin}, fleet is on {newest}",
                                      f"re-pin to {newest} so a fix reaches every repo"))
+    # A defect every repo inherited from one template is one decision, not N.
+    # Thirty-two rows saying "bump the action" is the content-mill failure the
+    # sift design rules forbid: the reader stops reading before the real finding.
+    for kind, headline in (
+        ("node20_action", "actions still on a Node 20 major"),
+        ("no_timeout", "workflows with no timeout-minutes"),
+        ("pin_skew", "repos behind the fleet's engine"),
+    ):
+        group = [f for f in found if f.kind == kind]
+        if len(group) <= 1:
+            continue
+        repos = sorted({f.repo for f in group})
+        entities = sorted({e for f in group for e in f.entity.split(", ")})
+        found = [f for f in found if f.kind != kind]
+        found.append(Finding(
+            group[0].severity, kind, f"{len(repos)} repos", ", ".join(entities)[:160],
+            f"{headline}: {len(group)} occurrence(s) across {', '.join(repos)}",
+            group[0].decision + " -- fleet-wide, so fix the template first",
+        ))
+
     found.sort(key=lambda f: (SEVERITY.index(f.severity), f.repo, f.kind))
     return found
 

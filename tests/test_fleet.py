@@ -43,6 +43,7 @@ def make_repo(
             on:
               schedule:
                 - cron: "{capture_cron}"
+            timeout-minutes: 30
             env:
               CADENCE: {workflow_cadence or cadence}
               ENGINE_SPEC: "wss @ git+https://github.com/o/wss-engine.git@{pin}"
@@ -54,7 +55,7 @@ def make_repo(
         )
     )
     (repo / ".github" / "workflows" / "derive.yml").write_text(
-        f'name: derive\non:\n  schedule:\n    - cron: "{derive_cron}"\n'
+        f'name: derive\ntimeout-minutes: 30\non:\n  schedule:\n    - cron: "{derive_cron}"\n'
     )
     (repo / "requirements.txt").write_text(
         f"wss @ git+https://github.com/o/wss-engine.git@{pin}\n"
@@ -236,3 +237,30 @@ def test_an_empty_field_from_a_missing_job_output_is_caught(tmp_path):
     (repo / "state" / "last_run.json").write_text('{"cadence":"weekly","sources_planned":,"x":1}')
     kinds_found = {f.kind for f in fleet.scan(fleet.find_repos(tmp_path))}
     assert "heartbeat_unreadable" in kinds_found
+
+
+def test_a_defect_every_repo_inherited_is_one_finding_not_eight(tmp_path):
+    """Thirty-two rows saying "bump the action" is the content-mill failure the
+    sift rules forbid -- the reader stops before reaching the real finding."""
+    for i in range(4):
+        repo = make_repo(tmp_path, f"wss-r{i}")
+        wf = repo / ".github" / "workflows" / "capture-weekly.yml"
+        wf.write_text(wf.read_text().replace("timeout-minutes: 30\n", ""))
+        wf.write_text(wf.read_text() + "    steps:\n      - uses: actions/checkout@v4\n")
+    findings = fleet.scan(fleet.find_repos(tmp_path))
+    for kind in ("no_timeout", "node20_action"):
+        rows = [f for f in findings if f.kind == kind]
+        assert len(rows) == 1, f"{kind} produced {len(rows)} rows, expected 1"
+        assert "4 repos" == rows[0].repo
+        assert "wss-r0" in rows[0].detail and "wss-r3" in rows[0].detail
+        assert "fix the template first" in rows[0].decision
+
+
+def test_pin_skew_collapses_too_but_still_names_every_repo(tmp_path):
+    make_repo(tmp_path, "wss-ahead", pin="v0.6.9")
+    for i in range(3):
+        make_repo(tmp_path, f"wss-behind{i}", pin="v0.6.8")
+    skew = [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "pin_skew"]
+    assert len(skew) == 1
+    assert all(f"wss-behind{i}" in skew[0].detail for i in range(3))
+    assert "wss-ahead" not in skew[0].detail   # it is the target, not a finding
