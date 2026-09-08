@@ -324,3 +324,60 @@ def test_a_missing_derived_dir_is_reported_not_silently_passed(tmp_path):
     (part / "2026-09.csv").write_text("x" * 1024)
     assert [f for f in fleet.scan(fleet.find_repos(tmp_path))
             if f.kind == "partition_unchecked"] == []
+
+
+def _ledger(tmp_path, *entries):
+    path = tmp_path / "incidents.jsonl"
+    path.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+    return path
+
+
+def test_a_recurrence_comes_back_louder_not_quieter(tmp_path):
+    """A second occurrence means the previous fix was wrong, which is more
+    serious than the first, not less. Severity escalates one step."""
+    make_repo(tmp_path, "wss-alpha", pin="v0.6.9")
+    make_repo(tmp_path, "wss-beta", pin="v0.6.8")
+    plain = [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "pin_skew"]
+    assert plain and plain[0].severity == "drift"
+
+    led = _ledger(tmp_path, {"closed": "2026-09-01", "repo": "wss-beta",
+                             "kind": "pin_skew", "entity": plain[0].entity,
+                             "shallow": "re-pinned by hand",
+                             "systemic": "added a bump workflow"})
+    out, _ = fleet.run_scan(tmp_path, ledger=led)
+    assert "OCCURRENCE 2" in out
+    assert "did not hold" in out
+    assert "added a bump workflow" in out          # names what was tried before
+    escalated = [f for f in fleet.apply_incidents(
+        fleet.scan(fleet.find_repos(tmp_path)), fleet.load_incidents(led))
+        if f.kind == "pin_skew"]
+    assert escalated[0].severity == "rot"          # drift -> rot
+
+
+def test_an_incident_closed_without_a_cause_reports_forever(tmp_path):
+    """The anti-monkey-patch mechanism: an admitted patch cannot be silenced by
+    fixing the symptom again, only by recording what stops it recurring."""
+    make_repo(tmp_path, "wss-alpha")               # a fleet with nothing wrong
+    assert fleet.scan(fleet.find_repos(tmp_path)) == []
+
+    led = _ledger(tmp_path, {"closed": "2026-09-08", "repo": "wss-alpha",
+                             "kind": "captures_nothing", "entity": "capture-weekly.yml",
+                             "shallow": "set CADENCE to weekly", "systemic": None})
+    out, _ = fleet.run_scan(tmp_path, ledger=led)
+    assert "patched_not_fixed" in out or "no recorded cause" in out
+    assert "set CADENCE to weekly" in out          # the patch is named
+
+    # recording the cause is the only thing that clears it
+    led.write_text(led.read_text().replace('"systemic": null',
+                                           '"systemic": "template no longer defaults to daily"'))
+    out, _ = fleet.run_scan(tmp_path, ledger=led)
+    assert "no recorded cause" not in out
+
+
+def test_a_malformed_ledger_line_is_reported_not_skipped(tmp_path):
+    """An unreadable ledger silently stops catching recurrences."""
+    make_repo(tmp_path, "wss-alpha")
+    path = tmp_path / "incidents.jsonl"
+    path.write_text('{"closed":"2026-09-08","kind":"x","entity":"y","systemic":"z"}\n{ broken\n')
+    out, _ = fleet.run_scan(tmp_path, ledger=path)
+    assert "ledger_malformed" in out and "line 2" in out

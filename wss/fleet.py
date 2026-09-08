@@ -340,6 +340,100 @@ def scan(repos: list[Path]) -> list[Finding]:
     return found
 
 
+# --------------------------------------------------------------- the ledger
+#
+# Every incident in this fleet has had a shallow fix and a systemic one, and on
+# 2026-09-08 the score was eight out of eight: setting CADENCE fixed two dead
+# repos, but the generator still defaulted to daily; re-basing gid windows fixed
+# a source for the SECOND time, because the procedure lived in nobody's head.
+#
+# So the ledger is not a log. It is a claim, per incident, that the cause was
+# removed -- and two checks that make the claim expensive to fake:
+#
+#   RECURRENCE     a finding matching a closed incident comes back LOUDER, not
+#                  quieter. A second occurrence means the previous fix was wrong,
+#                  which is more serious than the first, not less.
+#   PATCH DEBT     an incident closed with `systemic: null` is an admitted monkey
+#                  patch, and it is reported on every sweep forever. It cannot be
+#                  silenced by fixing the symptom again -- only by recording what
+#                  stops it recurring.
+#
+# The second is the point. Anyone can make a finding disappear; the ledger asks
+# what they changed so nobody has to make it disappear twice.
+
+INCIDENT_FIELDS = ("closed", "repo", "kind", "entity", "shallow", "systemic")
+
+
+def load_incidents(path: Path | str) -> list[dict]:
+    """Read an append-only JSONL ledger. A malformed line is reported, not skipped."""
+    path = Path(path)
+    if not path.is_file():
+        return []
+    out = []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError as exc:
+            out.append({"_malformed": f"line {number}: {exc}"})
+            continue
+        entry["_line"] = number
+        out.append(entry)
+    return out
+
+
+def _incident_key(kind: str, entity: str) -> tuple[str, str]:
+    # Deliberately NOT keyed on repo: a cause that moves between repos is the
+    # same cause, and the whole point is noticing that it travelled.
+    return (kind or "", (entity or "").strip())
+
+
+def apply_incidents(findings: list[Finding], incidents: list[dict]) -> list[Finding]:
+    """Escalate recurrences, and report every admitted patch, on every sweep."""
+    history: dict[tuple[str, str], list[dict]] = {}
+    for entry in incidents:
+        if "_malformed" in entry:
+            continue
+        history.setdefault(_incident_key(entry.get("kind"), entry.get("entity")), []).append(entry)
+
+    out: list[Finding] = []
+    for finding in findings:
+        prior = history.get(_incident_key(finding.kind, finding.entity), [])
+        if not prior:
+            out.append(finding)
+            continue
+        last = sorted(prior, key=lambda e: str(e.get("closed", "")))[-1]
+        # One step worse. SEVERITY is worst-first, so escalating means index - 1.
+        worse = SEVERITY[max(0, SEVERITY.index(finding.severity) - 1)]
+        out.append(Finding(
+            worse, finding.kind, finding.repo, finding.entity,
+            f"OCCURRENCE {len(prior) + 1}. {finding.detail}",
+            f"the fix on {last.get('closed', '?')} did not hold — it was "
+            f"\"{last.get('systemic') or last.get('shallow') or 'unrecorded'}\". "
+            f"Do not repeat it: find what let it come back. Original: {finding.decision}"))
+
+    for entry in incidents:
+        if "_malformed" in entry:
+            out.append(Finding(
+                "drift", "ledger_malformed", "wss-manager", "incidents.jsonl",
+                entry["_malformed"],
+                "fix the line -- an unreadable ledger silently stops catching recurrences"))
+            continue
+        if entry.get("systemic"):
+            continue
+        out.append(Finding(
+            "rot", "patched_not_fixed", entry.get("repo", "?"),
+            f"{entry.get('kind', '?')}: {entry.get('entity', '?')}",
+            f"closed {entry.get('closed', '?')} with a fix but no recorded cause — "
+            f"\"{entry.get('shallow', 'unrecorded')}\"",
+            "record what stops it recurring in `systemic`, or say plainly that the "
+            "symptom is all there is. This reports every sweep until one of those "
+            "happens -- fixing the symptom again will not clear it"))
+    return out
+
+
 def find_repos(root: Path) -> list[Path]:
     """Every sibling directory that looks like a domain repo (has a registry)."""
     return sorted(p for p in root.iterdir() if (p / "registry").is_dir())
@@ -360,16 +454,23 @@ def render(findings: list[Finding], repos: list[Path]) -> str:
         lines.append("")
         lines.append(f"{sev.upper()}  ({len(group)})")
         for f in group:
-            lines.append(f"  {f.repo}  {f.entity}")
+            # The kind is printed because it is half the ledger key: closing an
+            # incident means writing down {kind, entity}, and a report that only
+            # prose-describes the problem makes that a guessing game.
+            lines.append(f"  [{f.kind}]  {f.repo}  {f.entity}")
             lines.append(f"      {f.detail}")
             lines.append(f"      -> {f.decision}")
     return "\n".join(lines)
 
 
-def run_scan(root: Path | str, *, as_json: bool = False, fail_on: str | None = None) -> tuple[str, int]:
+def run_scan(root: Path | str, *, as_json: bool = False, fail_on: str | None = None,
+             ledger: Path | str | None = None) -> tuple[str, int]:
     root = Path(root)
     repos = find_repos(root)
     findings = scan(repos)
+    if ledger:
+        findings = apply_incidents(findings, load_incidents(ledger))
+        findings.sort(key=lambda f: (SEVERITY.index(f.severity), f.repo, f.kind))
     if as_json:
         out = json.dumps([asdict(f) for f in findings], indent=2)
     else:

@@ -156,7 +156,8 @@ def cmd_derive(args: argparse.Namespace, root: Path) -> int:
 
 
 def cmd_fleet_scan(args: argparse.Namespace, root: Path) -> int:
-    out, code = fleet.run_scan(args.dir or root, as_json=args.json, fail_on=args.fail_on)
+    out, code = fleet.run_scan(args.dir or root, as_json=args.json,
+                               fail_on=args.fail_on, ledger=args.ledger)
     print(out)
     return code
 
@@ -243,6 +244,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--fail-on",
         choices=fleet.SEVERITY,
         help="exit 1 if any finding is at this severity or worse",
+    )
+    p.add_argument(
+        "--ledger",
+        help="incidents.jsonl — escalates anything that has been fixed before, and "
+             "reports every incident closed without a recorded cause",
     )
 
     return parser
