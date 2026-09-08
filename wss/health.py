@@ -47,24 +47,37 @@ def compute_health(root: Path | str, sources: list[Source], now: datetime | None
         first_success = ""
         last_success = ""
         last_attempt = ""
-        consecutive = 0
         attempts_28d = 0
         quarantined_28d = 0
+        # Failures are counted per ATTEMPT DAY, not per row. A row is one
+        # endpoint fetch, so counting rows made the threshold mean "five runs"
+        # for a one-endpoint source and "one run" for a five-endpoint one --
+        # fda.recalls.cder has five yearly endpoints and auto-disabled on its
+        # first blocked run, while a single-endpoint source on the same blocked
+        # host survived. A 304-endpoint source would have scored 304.
+        by_day: dict[str, bool] = {}          # day -> did anything succeed
         for row in manifest.iter_rows(root, source.source_id):
             outcome = row.get("outcome", "")
             if outcome == "skipped":
                 continue
             last_attempt = row["fetched_at"]
+            day = row["fetched_at"][:10]
             if outcome in manifest.SUCCESS_OUTCOMES:
                 first_success = first_success or row["fetched_at"]
                 last_success = row["fetched_at"]
-                consecutive = 0
+                by_day[day] = True
             elif outcome in manifest.FAILURE_OUTCOMES:
-                consecutive += 1
+                by_day.setdefault(day, False)
             if _hours_between(now_iso, row["fetched_at"]) <= 28 * 24:
                 attempts_28d += 1
                 if outcome == "quarantined":
                     quarantined_28d += 1
+        # A day counts against the source only if NOTHING succeeded that day.
+        consecutive = 0
+        for day in sorted(by_day, reverse=True):
+            if by_day[day]:
+                break
+            consecutive += 1
         staleness = f"{_hours_between(now_iso, last_success):.1f}" if last_success else ""
         fail_rate = f"{quarantined_28d / attempts_28d:.3f}" if attempts_28d else ""
         out.append(

@@ -4,7 +4,7 @@ import csv
 import json
 from datetime import datetime, timezone
 
-from wss import manifest, registry
+from wss import health, manifest, registry
 from wss.health import run_health
 from tests.conftest import write_source_yaml
 
@@ -98,3 +98,46 @@ def test_skipped_rows_do_not_count_either_way(tmp_path):
     sources = registry.load_registry(tmp_path)
     disabled = run_health(tmp_path, sources, now=NOW)
     assert [d["source_id"] for d in disabled] == ["fixture.demo.polite"]  # 5 failures, skip ignored
+
+
+def add_row_at(root, source_id, stamp, outcome, reason=""):
+    """Like add_row but with an explicit timestamp, so several endpoint fetches
+    can share one day the way a real multi-endpoint run does."""
+    row = {col: "" for col in manifest.COLUMNS} | {
+        "source_id": source_id, "url": "https://example.com/api",
+        "fetched_at": stamp, "outcome": outcome, "reason": reason,
+    }
+    if outcome in manifest.SUCCESS_OUTCOMES:
+        row |= {"http_status": "200", "content_sha256": "abc",
+                "content_length": "100", "raw_ref": "raw/x"}
+    manifest.append_row(root, row)
+
+
+def test_a_multi_endpoint_source_does_not_auto_disable_in_one_run(tmp_path):
+    """Failures are counted per attempt DAY, not per endpoint fetch.
+
+    Counting rows made the threshold mean "five runs" for a one-endpoint source
+    and "one run" for a five-endpoint one: fda.recalls.cder has five yearly
+    endpoints and auto-disabled the first time CI was blocked, while a
+    single-endpoint source on the same blocked host survived untouched.
+    """
+    write_source_yaml(tmp_path, "fixture.demo.multi", "https://example.com/api")
+    for i in range(5):                      # one run, five endpoints, all failed
+        add_row_at(tmp_path, "fixture.demo.multi", f"2026-08-08T10:0{i}:00Z", "quarantined")
+    rows = {r["source_id"]: r for r in health.compute_health(
+        tmp_path, registry.load_registry(tmp_path), now=NOW)}
+    assert rows["fixture.demo.multi"]["consecutive_failures"] == 1
+
+    # a later day where anything succeeded clears the streak
+    add_row_at(tmp_path, "fixture.demo.multi", "2026-08-09T10:00:00Z", "unchanged")
+    add_row_at(tmp_path, "fixture.demo.multi", "2026-08-09T10:01:00Z", "quarantined")
+    rows = {r["source_id"]: r for r in health.compute_health(
+        tmp_path, registry.load_registry(tmp_path), now=NOW)}
+    assert rows["fixture.demo.multi"]["consecutive_failures"] == 0
+
+    # five separate days with nothing succeeding is still five
+    for d in range(10, 15):
+        add_row_at(tmp_path, "fixture.demo.multi", f"2026-08-{d}T10:00:00Z", "error")
+    rows = {r["source_id"]: r for r in health.compute_health(
+        tmp_path, registry.load_registry(tmp_path), now=NOW)}
+    assert rows["fixture.demo.multi"]["consecutive_failures"] == 5
