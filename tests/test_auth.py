@@ -7,6 +7,7 @@ tests assert the leak paths are closed, not merely that auth works.
 
 from __future__ import annotations
 
+import textwrap
 import json
 
 import pytest
@@ -267,3 +268,28 @@ def test_encoding_without_post_is_rejected(tmp_path):
         "  - url: https://example.invalid/x\n    encoding: form\n"))
     with pytest.raises(registry.RegistryError, match="only applies to a POST body"):
         registry.load_registry(tmp_path)
+
+
+def test_doctor_survives_header_auth(tmp_path, monkeypatch, capsys):
+    """doctor crashed with KeyError('bearer_env') on any source using named
+    headers -- which is every FDA source in the fleet. It must diagnose them,
+    not die before printing anything."""
+    monkeypatch.setenv("WSS_CONTACT", "t +https://github.com/x")
+    monkeypatch.setenv("DEMO_USER", "u@example.com")
+    monkeypatch.setenv("DEMO_KEY", "secret-value")
+    with FixtureServer() as server:
+        server.allow_all_robots()
+        server.set("/api", BODY)
+        path = write_source_yaml(tmp_path, "demo.api.headers", server.url + "/api")
+        path.write_text(path.read_text() + textwrap.dedent(
+            """\
+            auth:
+              headers:
+                Authorization-User: DEMO_USER
+                Authorization-Key: DEMO_KEY
+            """))
+        assert cli.main(["--root", str(tmp_path), "doctor", "demo.api.headers"]) == 0
+    out = capsys.readouterr().out
+    assert "Authorization-User: <$DEMO_USER>" in out
+    assert "Authorization-Key: <$DEMO_KEY>" in out
+    assert "secret-value" not in out          # the value must never be printed

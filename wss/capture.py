@@ -508,8 +508,18 @@ def doctor(root: Path | str, source_id: str, log: Callable[[str], None] = print)
         log(str(exc))
         return 1
     if credentials:
-        _scheme = source.auth.get("scheme", "Bearer")
-        log(f"auth      : Authorization: {_scheme} <${source.auth['bearer_env']}>  (value never printed)")
+        # Two auth shapes exist: `bearer_env` for a single Authorization header,
+        # and `headers` for publishers that want their own header names -- FDA's
+        # Authorization-User/Authorization-Key pair being the reason the second
+        # was added. doctor only knew the first, so it crashed with a KeyError on
+        # every header-authenticated source instead of diagnosing it.
+        if source.auth.get("bearer_env"):
+            scheme = source.auth.get("scheme", "Bearer")
+            log(f"auth      : Authorization: {scheme} <${source.auth['bearer_env']}>  (value never printed)")
+        else:
+            named = (source.auth.get("headers") or {})
+            for header, env_name in sorted(named.items()):
+                log(f"auth      : {header}: <${env_name}>  (value never printed)")
     log(f"source_id : {source.source_id}")
     log(f"status    : {source.status}   cadence: {source.cadence}   storage: {source.storage}")
     log(f"schema_id : {source.schema_id}   publisher: {source.publisher} ({source.publisher_tier})")
