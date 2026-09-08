@@ -264,3 +264,27 @@ def test_pin_skew_collapses_too_but_still_names_every_repo(tmp_path):
     assert len(skew) == 1
     assert all(f"wss-behind{i}" in skew[0].detail for i in range(3))
     assert "wss-ahead" not in skew[0].detail   # it is the target, not a finding
+
+
+def test_a_partition_running_out_of_room_is_reported(tmp_path):
+    """GitHub refuses a file over 100 MB. A derived partition is append-only
+    within its month, so the moment to speak is while there is room to act."""
+    repo = make_repo(tmp_path, "wss-alpha")
+    part = repo / "derived" / "observations"
+    part.mkdir(parents=True)
+    (part / "2026-09.csv").write_text("x" * int(46 * 1048576))
+    hit = [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "partition_near_limit"]
+    assert len(hit) == 1 and hit[0].severity == "rot"
+    assert "46 MB" in hit[0].detail
+
+    (part / "2026-09.csv").write_text("x" * int(101 * 1048576))
+    hit = [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "partition_near_limit"]
+    assert hit[0].severity == "dead"      # a push will now be refused outright
+
+
+def test_a_small_partition_is_not_a_finding(tmp_path):
+    repo = make_repo(tmp_path, "wss-alpha")
+    part = repo / "derived" / "observations"
+    part.mkdir(parents=True)
+    (part / "2026-09.csv").write_text("x" * 1024)
+    assert [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "partition_near_limit"] == []

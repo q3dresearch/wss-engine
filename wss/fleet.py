@@ -38,6 +38,11 @@ NODE20_ACTIONS = {
     "actions/upload-artifact": 4, "actions/download-artifact": 4,
 }
 GATE_ROT_RATE = 0.50      # half the fetches quarantined = the page has moved on
+# GitHub refuses a file over 100 MB outright and warns from 50. A derived
+# partition is append-only within its month, so the moment to say something is
+# while there is still room to act.
+PARTITION_WARN_MB = 45.0
+PARTITION_HARD_MB = 100.0
 
 
 @dataclass
@@ -216,6 +221,23 @@ def scan_repo(repo: Path) -> list[Finding]:
                                  f"the last committed run recorded sources_planned={planned!r}",
                                  "this repo's most recent capture selected no sources -- fix "
                                  "CADENCE or the registry before the next scheduled run"))
+
+    # --- is any partition running out of room? ---
+    part_dir = repo / "derived" / "observations"
+    if part_dir.is_dir():
+        biggest = max(
+            ((p.stat().st_size / 1048576, p.name) for p in part_dir.glob("*.csv")),
+            default=(0.0, ""))
+        size_mb, part = biggest
+        if size_mb >= PARTITION_WARN_MB:
+            sev = "dead" if size_mb >= PARTITION_HARD_MB else "rot"
+            found.append(Finding(
+                sev, "partition_near_limit", name, f"derived/observations/{part}",
+                f"{size_mb:.0f} MB against GitHub's {PARTITION_HARD_MB:.0f} MB hard limit",
+                "a source with no event date writes its whole snapshot at capture time, "
+                "so the month's partition grows per capture -- slow the cadence, cut "
+                "metrics per entity, or move the source to object storage before a "
+                "push is refused"))
 
     # --- is anyone watching? ------------------------------------------------
     rows = _health_rows(repo)
