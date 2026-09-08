@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import shutil
 import json
 import textwrap
 from pathlib import Path
@@ -60,6 +61,12 @@ def make_repo(
     (repo / "requirements.txt").write_text(
         f"wss @ git+https://github.com/o/wss-engine.git@{pin}\n"
     )
+
+    # A real repo has a derived/ directory; without one the scan correctly
+    # reports that it could not check partition size.
+    part = repo / "derived" / "observations"
+    part.mkdir(parents=True, exist_ok=True)
+    (part / "2026-09.csv").write_text("series_id,entity_id\n")
 
     if health:
         (repo / "health").mkdir()
@@ -271,7 +278,6 @@ def test_a_partition_running_out_of_room_is_reported(tmp_path):
     within its month, so the moment to speak is while there is room to act."""
     repo = make_repo(tmp_path, "wss-alpha")
     part = repo / "derived" / "observations"
-    part.mkdir(parents=True)
     (part / "2026-09.csv").write_text("x" * int(46 * 1048576))
     hit = [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "partition_near_limit"]
     assert len(hit) == 1 and hit[0].severity == "rot"
@@ -285,7 +291,6 @@ def test_a_partition_running_out_of_room_is_reported(tmp_path):
 def test_a_small_partition_is_not_a_finding(tmp_path):
     repo = make_repo(tmp_path, "wss-alpha")
     part = repo / "derived" / "observations"
-    part.mkdir(parents=True)
     (part / "2026-09.csv").write_text("x" * 1024)
     assert [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "partition_near_limit"] == []
 
@@ -308,13 +313,14 @@ def test_a_missing_derived_dir_is_reported_not_silently_passed(tmp_path):
     """The weekly sift sparse-checks out registry/, health/ and the workflows,
     so derived/ is absent and the partition check cannot run. Passing silently
     is how a check stops being a check."""
-    make_repo(tmp_path, "wss-alpha")                       # no derived/ at all
+    repo = make_repo(tmp_path, "wss-alpha")
+    shutil.rmtree(repo / "derived")                        # as the sift sees it
     hit = [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "partition_unchecked"]
     assert len(hit) == 1
     assert "not checked" in hit[0].detail
 
     part = tmp_path / "wss-alpha" / "derived" / "observations"
-    part.mkdir(parents=True)
+    part.mkdir(parents=True, exist_ok=True)
     (part / "2026-09.csv").write_text("x" * 1024)
     assert [f for f in fleet.scan(fleet.find_repos(tmp_path))
             if f.kind == "partition_unchecked"] == []

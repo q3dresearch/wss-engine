@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wss"
-version = "0.6.20"
+version = "0.6.21"
 description = "Registry-driven web-snapshot fleet: scheduled GitHub Actions that capture any observable web page or API verbatim, and derive point-in-time observation tables."
 readme = "README.md"
 requires-python = ">=3.10"
