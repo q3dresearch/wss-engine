@@ -405,3 +405,23 @@ def test_escalation_never_changes_the_category(tmp_path):
     assert fleet.ESCALATION["blind"] == "dead"
     assert fleet.ESCALATION["drift"] == "rot"
     assert fleet.ESCALATION["dead"] == "dead"
+
+
+def test_an_accepted_condition_is_annotated_never_escalated(tmp_path):
+    """Some findings are supposed to be there. An accessdata source always carries
+    a small failure count from CI attempts it cannot win. Escalating that to DEAD
+    every week is the alert fatigue the ledger exists to prevent."""
+    make_repo(tmp_path, "wss-alpha", pin="v0.6.9")
+    make_repo(tmp_path, "wss-beta", pin="v0.6.8")
+    skew = [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "pin_skew"][0]
+    led = _ledger(tmp_path, {"closed": "2026-09-08", "repo": "wss-beta",
+                             "kind": "pin_skew", "entity": skew.entity,
+                             "shallow": "-", "systemic": "this repo is pinned on purpose",
+                             "accepted": True})
+    got = [f for f in fleet.apply_incidents(fleet.scan(fleet.find_repos(tmp_path)),
+                                            fleet.load_incidents(led))
+           if f.kind == "pin_skew"]
+    assert len(got) == 1
+    assert got[0].severity == "drift"            # unchanged, not escalated
+    assert got[0].detail.startswith("ACCEPTED.")
+    assert "pinned on purpose" in got[0].decision

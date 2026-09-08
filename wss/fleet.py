@@ -353,6 +353,13 @@ def scan(repos: list[Path]) -> list[Finding]:
 #   RECURRENCE     a finding matching a closed incident comes back LOUDER, not
 #                  quieter. A second occurrence means the previous fix was wrong,
 #                  which is more serious than the first, not less.
+#   ACCEPTED       `"accepted": true` marks a condition that will not go away and
+#                  is not meant to -- an accessdata source that always carries a
+#                  small failure count from CI attempts it cannot win. It keeps
+#                  its severity, gains the recorded reasoning, and never
+#                  escalates. Without this the ledger turns a known state into a
+#                  weekly DEAD alert, which is the alert fatigue it exists to
+#                  prevent.
 #   PATCH DEBT     an incident closed with `systemic: null` is an admitted monkey
 #                  patch, and it is reported on every sweep forever. It cannot be
 #                  silenced by fixing the symptom again -- only by recording what
@@ -361,7 +368,7 @@ def scan(repos: list[Path]) -> list[Finding]:
 # The second is the point. Anyone can make a finding disappear; the ledger asks
 # what they changed so nobody has to make it disappear twice.
 
-INCIDENT_FIELDS = ("closed", "repo", "kind", "entity", "shallow", "systemic")
+INCIDENT_FIELDS = ("closed", "repo", "kind", "entity", "shallow", "systemic", "accepted")
 
 # SEVERITY is a list of CATEGORIES, not a scale -- `blind` means "unwatched",
 # not "between dead and rot". Escalating by list index turned a recurring `rot`
@@ -410,6 +417,15 @@ def apply_incidents(findings: list[Finding], incidents: list[dict]) -> list[Find
             out.append(finding)
             continue
         last = sorted(prior, key=lambda e: str(e.get("closed", "")))[-1]
+        if last.get("accepted"):
+            # A known, permanent condition. Annotate, never escalate: a finding
+            # that is SUPPOSED to be there must not get louder every week.
+            out.append(Finding(
+                finding.severity, finding.kind, finding.repo, finding.entity,
+                f"ACCEPTED. {finding.detail}",
+                f"known since {last.get('closed', '?')} — "
+                f"{last.get('systemic') or last.get('shallow') or 'no reason recorded'}"))
+            continue
         worse = ESCALATION.get(finding.severity, finding.severity)
         out.append(Finding(
             worse, finding.kind, finding.repo, finding.entity,
@@ -429,7 +445,7 @@ def apply_incidents(findings: list[Finding], incidents: list[dict]) -> list[Find
                 entry["_malformed"],
                 "fix the line -- an unreadable ledger silently stops catching recurrences"))
             continue
-        if entry.get("systemic"):
+        if entry.get("systemic") or entry.get("accepted"):
             continue
         if _incident_key(entry.get("kind"), entry.get("entity")) in live:
             continue
