@@ -363,6 +363,11 @@ def scan(repos: list[Path]) -> list[Finding]:
 
 INCIDENT_FIELDS = ("closed", "repo", "kind", "entity", "shallow", "systemic")
 
+# SEVERITY is a list of CATEGORIES, not a scale -- `blind` means "unwatched",
+# not "between dead and rot". Escalating by list index turned a recurring `rot`
+# into `blind`, which reads as a different problem rather than a worse one.
+ESCALATION = {"drift": "rot", "rot": "dead", "blind": "dead", "dead": "dead"}
+
 
 def load_incidents(path: Path | str) -> list[dict]:
     """Read an append-only JSONL ledger. A malformed line is reported, not skipped."""
@@ -405,8 +410,7 @@ def apply_incidents(findings: list[Finding], incidents: list[dict]) -> list[Find
             out.append(finding)
             continue
         last = sorted(prior, key=lambda e: str(e.get("closed", "")))[-1]
-        # One step worse. SEVERITY is worst-first, so escalating means index - 1.
-        worse = SEVERITY[max(0, SEVERITY.index(finding.severity) - 1)]
+        worse = ESCALATION.get(finding.severity, finding.severity)
         out.append(Finding(
             worse, finding.kind, finding.repo, finding.entity,
             f"OCCURRENCE {len(prior) + 1}. {finding.detail}",
@@ -414,6 +418,10 @@ def apply_incidents(findings: list[Finding], incidents: list[dict]) -> list[Find
             f"\"{last.get('systemic') or last.get('shallow') or 'unrecorded'}\". "
             f"Do not repeat it: find what let it come back. Original: {finding.decision}"))
 
+    # Patch debt is about a QUIET incident: patched, no cause recorded, waiting.
+    # If the symptom is back it is already reported as a recurrence, which is the
+    # louder signal -- saying both just doubles the row.
+    live = {_incident_key(f.kind, f.entity) for f in findings}
     for entry in incidents:
         if "_malformed" in entry:
             out.append(Finding(
@@ -422,6 +430,8 @@ def apply_incidents(findings: list[Finding], incidents: list[dict]) -> list[Find
                 "fix the line -- an unreadable ledger silently stops catching recurrences"))
             continue
         if entry.get("systemic"):
+            continue
+        if _incident_key(entry.get("kind"), entry.get("entity")) in live:
             continue
         out.append(Finding(
             "rot", "patched_not_fixed", entry.get("repo", "?"),

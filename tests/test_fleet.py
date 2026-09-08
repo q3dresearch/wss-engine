@@ -351,7 +351,7 @@ def test_a_recurrence_comes_back_louder_not_quieter(tmp_path):
     escalated = [f for f in fleet.apply_incidents(
         fleet.scan(fleet.find_repos(tmp_path)), fleet.load_incidents(led))
         if f.kind == "pin_skew"]
-    assert escalated[0].severity == "rot"          # drift -> rot
+    assert escalated[0].severity == "rot"          # drift -> rot, per ESCALATION
 
 
 def test_an_incident_closed_without_a_cause_reports_forever(tmp_path):
@@ -381,3 +381,27 @@ def test_a_malformed_ledger_line_is_reported_not_skipped(tmp_path):
     path.write_text('{"closed":"2026-09-08","kind":"x","entity":"y","systemic":"z"}\n{ broken\n')
     out, _ = fleet.run_scan(tmp_path, ledger=path)
     assert "ledger_malformed" in out and "line 2" in out
+
+
+def test_a_live_recurrence_is_not_also_reported_as_patch_debt(tmp_path):
+    """Patch debt is about a QUIET incident. If the symptom is back it is already
+    reported as a recurrence, which is louder; saying both doubles the row."""
+    make_repo(tmp_path, "wss-alpha", pin="v0.6.9")
+    make_repo(tmp_path, "wss-beta", pin="v0.6.8")
+    skew = [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "pin_skew"][0]
+    led = _ledger(tmp_path, {"closed": "2026-09-01", "repo": "wss-beta",
+                             "kind": "pin_skew", "entity": skew.entity,
+                             "shallow": "re-pinned by hand", "systemic": None})
+    got = fleet.apply_incidents(fleet.scan(fleet.find_repos(tmp_path)),
+                                fleet.load_incidents(led))
+    kinds = [f.kind for f in got]
+    assert kinds.count("pin_skew") == 1          # the recurrence
+    assert "patched_not_fixed" not in kinds      # not also the debt
+
+
+def test_escalation_never_changes_the_category(tmp_path):
+    """rot -> dead, not rot -> blind. `blind` means unwatched, not "worse"."""
+    assert fleet.ESCALATION["rot"] == "dead"
+    assert fleet.ESCALATION["blind"] == "dead"
+    assert fleet.ESCALATION["drift"] == "rot"
+    assert fleet.ESCALATION["dead"] == "dead"
