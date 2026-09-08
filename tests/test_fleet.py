@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 import csv
 import shutil
 import json
@@ -425,3 +426,11 @@ def test_an_accepted_condition_is_annotated_never_escalated(tmp_path):
     assert got[0].severity == "drift"            # unchanged, not escalated
     assert got[0].detail.startswith("ACCEPTED.")
     assert "pinned on purpose" in got[0].decision
+
+
+def test_a_missing_ledger_is_an_error_not_an_empty_history(tmp_path):
+    """Returning [] for a missing file made "no memory" look like "nothing has
+    ever gone wrong". The sift ran a whole cycle that way."""
+    make_repo(tmp_path, "wss-alpha")
+    with pytest.raises(FileNotFoundError, match="ledger not found"):
+        fleet.load_incidents(tmp_path / "nope.jsonl")

@@ -380,7 +380,13 @@ def load_incidents(path: Path | str) -> list[dict]:
     """Read an append-only JSONL ledger. A malformed line is reported, not skipped."""
     path = Path(path)
     if not path.is_file():
-        return []
+        # NOT an empty ledger. A missing file means the sweep is running without
+        # its memory, and returning [] made that indistinguishable from "nothing
+        # has ever gone wrong" -- the sift ran for a full cycle that way because
+        # its workflow never checked out the repo holding this file.
+        raise FileNotFoundError(
+            f"ledger not found: {path}. A sweep without its ledger cannot detect "
+            f"a recurrence, and silently reports a clean history it did not read.")
     out = []
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = line.strip()
