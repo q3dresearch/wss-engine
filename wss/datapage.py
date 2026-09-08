@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -28,6 +29,35 @@ from . import manifest, registry
 
 FILENAME = Path("docs") / "index.html"
 _TODO = "TODO:"
+
+
+CHART_DIR = Path("examples") / "charts"
+
+
+def _figures(root: Path) -> list[dict]:
+    """Charts to publish, newest-meaningful order, with whatever caption they carry.
+
+    A repo's figures live in examples/charts/ and were reachable only by cloning
+    it. A landing page that cites the data but shows none of it is a page nobody
+    reads twice.
+
+    SVGs written by this fleet carry <title>/<desc> (the wrap() helper emits
+    them), but not all of them do -- wss-gho's predate that -- so the filename is
+    the fallback. No chart is skipped for lacking a caption.
+    """
+    charts = sorted((root / CHART_DIR).glob("*.svg")) if (root / CHART_DIR).is_dir() else []
+    out = []
+    for chart in charts:
+        head = chart.read_text(encoding="utf-8", errors="replace")[:4000]
+        title = re.search(r"<title>(.*?)</title>", head, re.S)
+        desc = re.search(r"<desc>(.*?)</desc>", head, re.S)
+        out.append({
+            "file": chart.name,
+            "title": (title.group(1).strip() if title
+                      else chart.stem.replace("-", " ").replace("_", " ").capitalize()),
+            "desc": desc.group(1).strip() if desc else "",
+        })
+    return out
 
 
 def _citation(root: Path) -> dict:
@@ -78,6 +108,7 @@ def build(root: Path | str, repo_url: str = "") -> str:
     sources = sorted(registry.load_registry(root), key=lambda s: s.source_id)
     active = [s for s in sources if s.status == "active"]
     first, last = _coverage(root, sources)
+    figures = _figures(root)
 
     name = cff.get("title") or root.name
     abstract = (cff.get("abstract") or "").strip()
@@ -121,6 +152,24 @@ def build(root: Path | str, repo_url: str = "") -> str:
     ld = {k: v for k, v in ld.items() if v not in ([], "", None)}
 
     e = html.escape
+    figures_html = ""
+    if figures:
+        cards = "\n".join(
+            f'  <figure>\n'
+            f'    <a href="charts/{e(f["file"])}"><img src="charts/{e(f["file"])}" '
+            f'alt="{e(f["title"])}" loading="lazy"></a>\n'
+            f'    <figcaption><strong>{e(f["title"])}</strong>'
+            + (f' — {e(f["desc"])}' if f["desc"] else "")
+            + '</figcaption>\n  </figure>'
+            for f in figures
+        )
+        figures_html = (
+            "\n<h2>Findings</h2>\n"
+            "<p>Figures are rebuilt from the derived tables on every run; each one "
+            "names the entities it is about so it can be acted on without a further "
+            "query.</p>\n" + cards + "\n"
+        )
+
     rows = "\n".join(
         f"      <tr><td><code>{e(s.source_id)}</code></td><td>{e(s.publisher)}</td>"
         f"<td>{e(s.cadence)}</td><td>{e(s.licence)}</td></tr>"
@@ -170,6 +219,7 @@ def build(root: Path | str, repo_url: str = "") -> str:
 <p>{e(description)}</p>
 {cover}
 
+{figures_html}
 <h2>What is captured</h2>
 <table>
   <thead><tr><th>source</th><th>publisher</th><th>cadence</th><th>terms</th></tr></thead>
@@ -210,4 +260,18 @@ def write(root: Path | str, repo_url: str = "") -> Path:
     # build, which shows up as the page silently not updating rather than as an
     # error anyone sees. Cheaper to opt out than to keep docs/ Jekyll-safe.
     (path.parent / ".nojekyll").touch()
+    # The page references charts/<name>.svg relative to itself, so the figures
+    # have to sit beside it in the published directory.
+    charts = root / CHART_DIR
+    if charts.is_dir():
+        out_dir = path.parent / "charts"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        published = set()
+        for svg in sorted(charts.glob("*.svg")):
+            (out_dir / svg.name).write_bytes(svg.read_bytes())
+            published.add(svg.name)
+        # A chart deleted upstream must not linger on the published page.
+        for stale in out_dir.glob("*.svg"):
+            if stale.name not in published:
+                stale.unlink()
     return path

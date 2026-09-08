@@ -123,3 +123,34 @@ def test_write_opts_out_of_jekyll(tmp_path):
     _repo(tmp_path)
     path = datapage.write(tmp_path, "https://github.com/o/r")
     assert (path.parent / ".nojekyll").exists()
+
+
+def test_figures_are_published_beside_the_page(tmp_path):
+    """A landing page that cites the data but shows none of it is a page nobody
+    reads twice. 45 charts across the fleet were reachable only by cloning."""
+    root = _repo(tmp_path)
+    charts = root / "examples" / "charts"
+    charts.mkdir(parents=True)
+    (charts / "with-meta.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg"><title>Volume against rate</title>'
+        '<desc>Inspections fell; the OAI share rose.</desc></svg>')
+    (charts / "no-meta.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+
+    path = datapage.write(root, repo_url="https://example.com/r")
+    html = path.read_text()
+
+    assert "<h2>Findings</h2>" in html
+    assert 'src="charts/with-meta.svg"' in html
+    assert "Volume against rate" in html
+    assert "Inspections fell; the OAI share rose." in html
+    # a chart lacking <title>/<desc> is still published, captioned from its name
+    assert 'src="charts/no-meta.svg"' in html
+    assert "No meta" in html
+    # and the files land beside the page, since the src is relative
+    assert (path.parent / "charts" / "with-meta.svg").is_file()
+    assert (path.parent / "charts" / "no-meta.svg").is_file()
+
+    # a chart deleted upstream must not linger on the published page
+    (charts / "no-meta.svg").unlink()
+    datapage.write(root, repo_url="https://example.com/r")
+    assert not (path.parent / "charts" / "no-meta.svg").exists()
