@@ -288,3 +288,17 @@ def test_a_small_partition_is_not_a_finding(tmp_path):
     part.mkdir(parents=True)
     (part / "2026-09.csv").write_text("x" * 1024)
     assert [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "partition_near_limit"] == []
+
+
+def test_a_pause_with_a_recorded_reason_is_not_drift(tmp_path):
+    """A pause is drift only when nobody wrote down why. Flagging a documented
+    decision every week trains the reader to skip the section it lives in."""
+    repo = make_repo(tmp_path, "wss-alpha", sources=2)
+    entry = repo / "registry" / "fixture.demo.s0.yml"
+    entry.write_text(entry.read_text().replace("status: active", "status: paused"))
+    flagged = [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "paused"]
+    assert len(flagged) == 1                       # undocumented -> reported
+
+    entry.write_text("# PAUSED ON PURPOSE -- the publisher archives it.\n" + entry.read_text())
+    flagged = [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "paused"]
+    assert flagged == []                           # documented -> a decision, not drift

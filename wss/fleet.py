@@ -37,6 +37,8 @@ NODE20_ACTIONS = {
     "actions/checkout": 4, "actions/setup-python": 5,
     "actions/upload-artifact": 4, "actions/download-artifact": 4,
 }
+# The graveyard marker: a paused entry that says why is a decision, not drift.
+PAUSE_DOCUMENTED = re.compile(r"PAUSED ON PURPOSE|RETIRED ON PURPOSE", re.I)
 GATE_ROT_RATE = 0.50      # half the fetches quarantined = the page has moved on
 # GitHub refuses a file over 100 MB outright and warns from 50. A derived
 # partition is append-only within its month, so the moment to say something is
@@ -138,6 +140,7 @@ def scan_repo(repo: Path) -> list[Finding]:
                         "fix the registry -- every workflow in this repo is failing at the gate")]
 
     active = [s for s in sources if s.status == "active"]
+    registry_dir = repo / "registry"
     workflows = _workflows(repo)
 
     # --- is anything actually being captured? -------------------------------
@@ -268,10 +271,24 @@ def scan_repo(repo: Path) -> list[Finding]:
                                  f"{rate:.0%} of fetches quarantined over 28d",
                                  "the page is drifting under its gates -- re-case it before it dies"))
 
-    paused = [s.source_id for s in sources if s.status == "paused"]
-    for sid in paused:
-        found.append(Finding("drift", "paused", name, sid, "paused, not retired",
-                             "resume it or retire it -- a permanent pause is a decision nobody made"))
+    # A pause is drift only when nobody wrote down why. wss-drug-scarcity's
+    # fda.nsde.marketing opens "PAUSED ON PURPOSE -- this entry documents a
+    # decision, not a collection" and explains that FDA retains delisted
+    # products, so capturing adds nothing. Flagging that every week trains the
+    # reader to skip the whole section, which costs more than the finding.
+    for source in sources:
+        if source.status != "paused":
+            continue
+        entry = registry_dir / f"{source.source_id}.yml"
+        text = entry.read_text(encoding="utf-8", errors="replace") if entry.is_file() else ""
+        if PAUSE_DOCUMENTED.search(text):
+            continue
+        found.append(Finding("drift", "paused", name, source.source_id,
+                             "paused, with no recorded reason",
+                             "resume it, or write down why it is parked -- a pause nobody "
+                             "explained is a decision nobody made. The convention is a "
+                             "'PAUSED ON PURPOSE' block saying what was tested and what "
+                             "would change the answer"))
     return found
 
 
