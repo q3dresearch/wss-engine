@@ -30,7 +30,12 @@ as well as the ceiling** — the two interact:
 | 2,702 | ceiling 4,000, bar fills 68% | ceiling **3,000**, bar fills **90%** |
 
 Both are round; the second wastes a third less of the panel. Among equally round
-options, the tightest wins. `examples/visualize.py:nice_axis()` in
+options, the tightest wins.
+
+**The rule is about the STEP, not the ceiling.** A ceiling of 12.5 over five
+ticks is a round ceiling and a step of 2.5, and renders as
+`0 / 2 / 5 / 7 / 10 / 12` — round-looking and unreadable. This shipped once.
+Steps are **1, 2 or 5 times a power of ten** and nothing else. `examples/visualize.py:nice_axis()` in
 wss-drug-scarcity is the reference implementation.
 
 **Start at zero for anything whose length encodes magnitude** — bars, columns,
