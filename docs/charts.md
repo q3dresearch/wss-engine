@@ -38,6 +38,29 @@ areas. A truncated baseline exaggerates differences by an amount the reader
 cannot see. Lines showing *change* may start elsewhere if the axis says so
 plainly.
 
+**A second axis is legal for a count against a rate.** The dual-axis warning is
+real but narrower than it is usually stated. It bites when both series are the
+**same kind of quantity** at different magnitudes — users against sessions —
+because a reader takes the crossing for an event when it is an artefact of how
+the two scales were placed.
+
+A count and a rate are different kinds of thing. Nobody reads the moment a
+"% classified OAI" line crosses an "inspections per year" bar as meaningful, and
+bars-plus-line is the standard form for a *volume down, rate up* finding.
+Splitting it into two panels is also correct and usually worse: the divergence is
+the finding, and separate panels make the reader carry a shape across a gap.
+
+Three things make the overlay honest, and all three are load-bearing:
+
+- **both axes start at zero**, so neither is scaled to manufacture a crossing
+- **both carry round ticks**, so the alignment is principled rather than whatever
+  a padding factor produced
+- **each axis is keyed by a swatch beside its title** — never by colouring the
+  tick text, which is illegible in a light hue
+
+`examples/charts/inspection-capacity.svg` in wss-drug-scarcity is the worked
+example.
+
 **Log scales are opt-in and labelled.** Use one when the data spans orders of
 magnitude, say so on the axis, and never mix log and linear panels without
 labelling both.
@@ -49,7 +72,7 @@ Each of these shipped. They are cheap to check and expensive to leave.
 | crime | what it does | fix |
 | --- | --- | --- |
 | irregular ticks | `756 / 1,513 / 2,269` — unreadable | round the ceiling, pick the tick count |
-| dual axis | two scales on one plot invent a crossover that is not in the data | two panels sharing an x-axis, or index both to a common base |
+| two scales for two counts | users against sessions: the crossover looks like an event and is an artefact of scaling | two panels, or index both to a common base |
 | a value on every point | unreadable, and nobody reads any of them | direct-label the ends and the extreme; the axis carries the rest |
 | a count with no names | "18 drugs are short" sends the reader back for a query | name the entities on the figure |
 | partial periods plotted whole | a fiscal year opening 1 October reads as a collapse | exclude partial periods and say so on the figure |
