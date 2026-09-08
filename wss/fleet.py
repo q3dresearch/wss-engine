@@ -227,7 +227,16 @@ def scan_repo(repo: Path) -> list[Finding]:
 
     # --- is any partition running out of room? ---
     part_dir = repo / "derived" / "observations"
-    if part_dir.is_dir():
+    if not part_dir.is_dir():
+        # Not "no problem" -- "not looked at". The weekly sift sparse-checks out
+        # registry/, health/ and the workflows only, because a full checkout
+        # would pull hundreds of MB of derived CSVs. So this check runs locally
+        # and is inert in CI, and saying so beats passing silently.
+        found.append(Finding("drift", "partition_unchecked", name, "derived/observations",
+                             "not present in this checkout, so partition size was not checked",
+                             "run `wss fleet-scan` against full local checkouts, or add "
+                             "derived/ to the sift's sparse-checkout and accept the download"))
+    else:
         biggest = max(
             ((p.stat().st_size / 1048576, p.name) for p in part_dir.glob("*.csv")),
             default=(0.0, ""))
@@ -313,6 +322,7 @@ def scan(repos: list[Path]) -> list[Finding]:
         ("node20_action", "actions still on a Node 20 major"),
         ("no_timeout", "workflows with no timeout-minutes"),
         ("pin_skew", "repos behind the fleet's engine"),
+        ("partition_unchecked", "repos whose derived/ was not in the checkout"),
     ):
         group = [f for f in found if f.kind == kind]
         if len(group) <= 1:

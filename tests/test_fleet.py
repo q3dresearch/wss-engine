@@ -302,3 +302,19 @@ def test_a_pause_with_a_recorded_reason_is_not_drift(tmp_path):
     entry.write_text("# PAUSED ON PURPOSE -- the publisher archives it.\n" + entry.read_text())
     flagged = [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "paused"]
     assert flagged == []                           # documented -> a decision, not drift
+
+
+def test_a_missing_derived_dir_is_reported_not_silently_passed(tmp_path):
+    """The weekly sift sparse-checks out registry/, health/ and the workflows,
+    so derived/ is absent and the partition check cannot run. Passing silently
+    is how a check stops being a check."""
+    make_repo(tmp_path, "wss-alpha")                       # no derived/ at all
+    hit = [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "partition_unchecked"]
+    assert len(hit) == 1
+    assert "not checked" in hit[0].detail
+
+    part = tmp_path / "wss-alpha" / "derived" / "observations"
+    part.mkdir(parents=True)
+    (part / "2026-09.csv").write_text("x" * 1024)
+    assert [f for f in fleet.scan(fleet.find_repos(tmp_path))
+            if f.kind == "partition_unchecked"] == []
