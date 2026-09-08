@@ -41,6 +41,34 @@ One nuance for documents: "immutable" is sometimes a lie. Slip opinions get
 revised after publication without notice. If detecting that is the point,
 capture with `schema_id: archive.v1` — see below.
 
+### 1b. Your prior is wrong in a known direction
+
+Measured over 28 candidates this umbrella has screened (`catalogue.csv`):
+
+| predicted | count | turned out to be that |
+| --- | --- | --- |
+| **wss** | 21 | **8 — 38%** |
+| larder / sift | 7 | **7 — 100%** |
+
+Every miss runs one way. Nothing predicted larder or sift has ever turned out to
+be wss; thirteen things predicted wss were not. **We over-call wss**, and the
+question that flips it is almost always the same one: *does the publisher keep
+its own history?*
+
+Two recent examples, both of which looked perishable and were not:
+
+- **NRC reactor status** ships as `PowerReactorStatusForLast365Days.txt`. The
+  filename says perishable. NRC publishes per-year archives back to 2005.
+- **CAISO's interconnection queue** publishes 1,771 *withdrawn* projects — the
+  DECRS shape exactly — until you read the column list and find `WITHDRAWNDATE`
+  and `WITHDRAW_REASON` already in it.
+
+So: **treat wss as the conclusion of last resort, not the hypothesis.** Spend the
+first five minutes trying to find the archive rather than confirming its absence,
+and check the *column list*, not a grep over it — a search summary claimed DECRS
+carried NDC and it does not; a 60-character grep said CAISO had no withdrawal
+date and it does.
+
 ### 2. Can a plain GET reach it?
 
 The engine issues plain HTTP GETs. No JavaScript, no browser, no login, no
