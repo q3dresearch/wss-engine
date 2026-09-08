@@ -143,7 +143,7 @@ registry first.
 
 ## Docs
 
-[casing a site](docs/casing-a-site.md) · [new domain repo](docs/new-domain.md)
+[casing a site](docs/casing-a-site.md) · [new domain repo](docs/new-domain.md) · [charts](docs/charts.md)
 · [registry](docs/registry.md) · [capture](docs/capture.md) ·
 [credentials](docs/credentials.md) · [contact](docs/contact.md) ·
 [storage](docs/storage.md) · [health](docs/health.md) ·
