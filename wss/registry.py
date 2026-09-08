@@ -24,6 +24,11 @@ STATUSES = ("active", "paused", "auto_disabled", "retired")
 PUBLISHER_TIERS = ("first_party", "primary", "redistribution")
 PERSONAL_DATA = ("none", "parties_only", "present")
 STORAGE_BACKENDS = ("git", "object")
+# Does re-stating an unchanged snapshot carry signal?
+#   every_capture  yes -- "this drug was STILL short on the 7th" is the finding
+#   on_change      no  -- a slow register re-stating 30,483 rows a run is 35%
+#                        of the partition saying nothing new
+RESTATE_MODES = ("every_capture", "on_change")
 
 GATE_KEYS = (
     "expect_status",
@@ -48,7 +53,7 @@ REQUIRED_KEYS = (
     "endpoints",
     "gates",
 )
-OPTIONAL_KEYS = ("notes", "tags", "auth", "dedupe_ignore")
+OPTIONAL_KEYS = ("notes", "tags", "auth", "dedupe_ignore", "restate")
 
 AUTH_KEYS = ("bearer_env", "scheme", "headers")
 ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -112,6 +117,8 @@ class Source:
     personal_data: str
     storage: str
     endpoints: tuple[Endpoint, ...]
+    # every_capture (default) | on_change -- see RESTATE_MODES
+    restate: str = "every_capture"
     gates: dict = field(default_factory=dict)
     auth: dict = field(default_factory=dict)
     notes: str = ""
@@ -294,6 +301,8 @@ def validate_entry(data: object, path: Path) -> tuple[Source | None, list[str]]:
     check_enum("publisher_tier", PUBLISHER_TIERS)
     check_enum("personal_data", PERSONAL_DATA)
     check_enum("storage", STORAGE_BACKENDS)
+    if "restate" in data:
+        check_enum("restate", RESTATE_MODES)
 
     for key in ("schema_id", "publisher", "licence"):
         if not isinstance(data[key], str) or not data[key].strip():
@@ -348,6 +357,7 @@ def validate_entry(data: object, path: Path) -> tuple[Source | None, list[str]]:
             licence=data["licence"],
             personal_data=data["personal_data"],
             storage=data["storage"],
+            restate=data.get("restate", "every_capture"),
             endpoints=tuple(endpoints),
             gates=dict(data["gates"]),
             auth=dict(data.get("auth") or {}),

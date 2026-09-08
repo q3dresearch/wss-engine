@@ -54,6 +54,15 @@ beyond shape checking:
   default, weekly the floor, quarterly for slow or meta-like processes. A faster
   poll only buys *transitions* — if you cannot name the transition you would
   miss, you are paying storage for nothing.
+- `restate` is `every_capture` (default) or `on_change`, and decides whether an
+  **unchanged** capture is re-materialised into the derived table. `unchanged`
+  means the bytes were identical, so re-parsing them produces observations that
+  differ only in `observed_at`. For a membership series that restatement *is*
+  the signal — "this drug was still short on the 7th" is the finding. For a
+  slow-moving register it is pure volume: 35% of wss-mining-pipeline's partition
+  was the same fact on a later date, on a file already at 56 MB against
+  GitHub's 100 MB limit. The manifest still records that we looked and it was
+  the same, so nothing is lost — only the duplication in `derived/`.
 - `dedupe_ignore` is an optional list of regexes stripped from the body **only**
   when deciding changed vs unchanged. Use it when a publisher stamps a random
   id into every render (Drupal's `js-view-dom-id-<hash>`, build ids, nonces),

@@ -130,3 +130,36 @@ def test_explicit_parsers_override_discovery(tmp_path):
     derive.register("test.v1", parse_widgets, "3")
     stats = derive.derive(tmp_path, parser_modules=[])
     assert stats["rows"] == 3  # no parsers/ dir present; registered parser still used
+
+
+def test_on_change_does_not_re_materialise_an_unchanged_snapshot(tmp_path, monkeypatch):
+    """`unchanged` means the bytes were identical, so re-parsing them yields
+    observations differing only in observed_at. For a membership series that
+    restatement is the signal; for a slow register it was 35% of the partition
+    saying nothing new."""
+    monkeypatch.setenv("WSS_CONTACT", "t +https://github.com/x")
+
+    def rows_for(mode):
+        root = tmp_path / mode
+        root.mkdir()
+        path = write_source_yaml(root, "fixture.demo.reg", "https://example.com/a")
+        if mode == "on_change":
+            path.write_text(path.read_text() + "restate: on_change\n")
+        derive.register("test.v1", lambda body, ctx: [
+            derive.Observation("thing:1", "present", 1, "bool")], "1")
+        for stamp, outcome in (("2026-09-01T10:00:00Z", "first_capture"),
+                               ("2026-09-02T10:00:00Z", "unchanged"),
+                               ("2026-09-03T10:00:00Z", "unchanged")):
+            row = {c: "" for c in manifest.COLUMNS} | {
+                "source_id": "fixture.demo.reg", "url": "https://example.com/a",
+                "fetched_at": stamp, "outcome": outcome, "http_status": "200",
+                "content_sha256": "abc", "content_length": "9", "raw_ref": "raw/x.json"}
+            manifest.append_row(root, row)
+        raw = root / "raw"
+        raw.mkdir(exist_ok=True)
+        (raw / "x.json").write_text("{}")
+        return derive.derive(root)["rows"]
+
+    assert rows_for("every_capture") == 3      # the restatement is kept
+    derive.clear_parsers()
+    assert rows_for("on_change") == 1          # only the capture that changed

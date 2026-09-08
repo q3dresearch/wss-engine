@@ -156,6 +156,14 @@ def derive(
         for row in manifest.iter_rows(root, source.source_id):
             if row.get("outcome") not in manifest.SUCCESS_OUTCOMES:
                 continue
+            # `unchanged` means the bytes were identical, so re-parsing them
+            # produces observations that differ only in observed_at. For a
+            # membership series that restatement IS the signal ("still short on
+            # the 7th"). For a slow register it is pure volume -- 35% of
+            # wss-mining-pipeline's partition was the same fact on a later date.
+            # The manifest still records that we looked and it was the same.
+            if source.restate == "on_change" and row["outcome"] == "unchanged":
+                continue
             if since and row["fetched_at"][:7] < since:
                 continue
             if entry is None:
