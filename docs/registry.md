@@ -69,8 +69,16 @@ beyond shape checking:
   which otherwise defeats dedupe entirely — storage grows without bound and
   `outcome: changed` stops meaning anything. Archived bytes and
   `content_sha256` are always the untouched response.
-- `personal_data: present` is rejected outright — this fleet does not collect
-  personal data
+- `personal_data: present` requires **`storage: object`** and notes naming the
+  personal fields and which the derived tables drop. It is not refused outright:
+  discarding a source because it contains an email throws away every other
+  column with it, and FDA's establishment register carries contact names beside
+  the FEI, address and operations that are the reason to capture it at all.
+  What must not happen is personal data landing in a **public repository**, and
+  that is a storage question rather than a collection one — raw to a private
+  bucket, redacted at derive, published without it. The rule does not relax for
+  a paused source: `paused` stops the fetching, not the publishing of bytes
+  already committed
 - `personal_data: parties_only` is a narrow exemption for public proceedings,
   and it **requires `notes`** saying who the named parties are and why the
   derived tables do not carry them. Use it only when all of these hold:

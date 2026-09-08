@@ -25,7 +25,7 @@ def test_valid_entry_loads(tmp_path):
     [
         ({"cadence": "fortnightly"}, "cadence"),
         ({"status": "enabled"}, "status"),
-        ({"personal_data": "present"}, "personal_data 'present' is rejected"),
+        ({"personal_data": "present"}, "requires storage: object"),
         ({"publisher_tier": "secondary"}, "publisher_tier"),
         ({"storage": "ftp"}, "storage"),
         ({"source_id": "TooShort"}, "source_id"),

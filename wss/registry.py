@@ -317,7 +317,26 @@ def validate_entry(data: object, path: Path) -> tuple[Source | None, list[str]]:
         )
 
     if data["personal_data"] == "present":
-        problems.append(f"{where}: personal_data 'present' is rejected — this fleet does not collect personal data")
+        # Not a blanket rejection any more. Discarding a source because it
+        # contains an email throws away the other 13 columns with it -- FDA's
+        # establishment register carries contact names beside the FEI, address
+        # and operations that are the whole point of capturing it.
+        #
+        # What must not happen is PII landing in a PUBLIC git repo, and that is
+        # a storage question, not a collection one. So `present` is allowed
+        # exactly when the raw goes to object storage, and the notes say what
+        # derive drops before anything is published.
+        if data.get("storage") != "object":
+            problems.append(
+                f"{where}: personal_data 'present' requires storage: object — raw "
+                f"with personal data must not enter a public repository. Capture it "
+                f"to a private bucket and redact at derive"
+            )
+        if not str(data.get("notes") or "").strip():
+            problems.append(
+                f"{where}: personal_data 'present' requires notes naming the personal "
+                f"fields and stating which the derived tables drop"
+            )
     elif data["personal_data"] == "parties_only" and not str(data.get("notes") or "").strip():
         # The narrow exemption is only meaningful if the reasoning is recorded:
         # who the parties are, and why deleting their names leaves the dataset
