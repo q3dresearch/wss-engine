@@ -463,3 +463,28 @@ def test_run_scan_refuses_a_missing_states_file(tmp_path):
     """Silently checking nothing is how a clean report gets trusted."""
     with pytest.raises(FileNotFoundError, match="reports a clean fleet"):
         fleet.run_scan(tmp_path, workflow_states=tmp_path / "absent.json")
+
+
+def test_a_recovered_source_left_disabled_is_dead_not_rot(tmp_path):
+    """Auto-disable is one-way: nothing ever turns a source back on.
+
+    fda.recalls.cder sat auto_disabled with consecutive_failures down to 1 and
+    a success two days before. Healthy, and capturing nothing, and the sweep
+    reported it as ordinary rot alongside genuinely broken sources.
+    """
+    repo = tmp_path / "wss-demo"
+    repo.mkdir()
+    # An empty registry short-circuits the whole scan with registry_invalid,
+    # so the repo needs real entries before any health check is reached.
+    write_source_yaml(repo, "demo.api.recovered", "https://example.com/a")
+    write_source_yaml(repo, "demo.api.broken", "https://example.com/b")
+    (repo / "health").mkdir(parents=True)
+    (repo / "health" / "health.csv").write_text(
+        "source_id,status,consecutive_failures,last_success_at,expected_interval_h,staleness_h\n"
+        "demo.api.recovered,auto_disabled,1,2026-09-07T00:00:00Z,168,20\n"
+        "demo.api.broken,auto_disabled,11,2026-01-01T00:00:00Z,168,9000\n")
+    found = {f.entity: f for f in fleet.scan_repo(repo)}
+    assert found["demo.api.recovered"].kind == "disabled_but_healthy"
+    assert found["demo.api.recovered"].severity == "dead"   # losing data right now
+    assert found["demo.api.broken"].kind == "auto_disabled"
+    assert found["demo.api.broken"].severity == "rot"

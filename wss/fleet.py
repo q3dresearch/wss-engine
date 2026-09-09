@@ -268,9 +268,26 @@ def scan_repo(repo: Path) -> list[Finding]:
     for row in rows:
         sid = row.get("source_id", "?")
         if row.get("status") == "auto_disabled":
-            found.append(Finding("rot", "auto_disabled", name, sid,
-                                 f"{row.get('consecutive_failures', '?')} consecutive failures",
-                                 "retire it, repoint the URL, or fix the gate -- it is off until you do"))
+            # Auto-disable is a ONE-WAY DOOR. apply_auto_disable only ever
+            # flips active -> auto_disabled and skips anything already
+            # disabled, so a source that recovers stays off until a human
+            # notices. fda.recalls.cder sat disabled with consecutive_failures
+            # back down to 1 and a success two days earlier -- healthy, and
+            # capturing nothing.
+            consec = _float(row.get("consecutive_failures")) or 0
+            if consec <= 1:
+                found.append(Finding(
+                    "dead", "disabled_but_healthy", name, sid,
+                    f"auto_disabled, but consecutive_failures is {consec:.0f} "
+                    f"and it last succeeded {(row.get('last_success_at') or '?')[:10]}",
+                    "it recovered and nothing turned it back on. Flip status to "
+                    "active, and if the failures came from CI on a host that "
+                    "blocks runners, say so in the entry so the next ten are "
+                    "expected rather than fatal"))
+            else:
+                found.append(Finding("rot", "auto_disabled", name, sid,
+                                     f"{row.get('consecutive_failures', '?')} consecutive failures",
+                                     "retire it, repoint the URL, or fix the gate -- it is off until you do"))
             continue
         expected, stale = _float(row.get("expected_interval_h")), _float(row.get("staleness_h"))
         if expected and stale and stale > expected * STALE_FACTOR:
