@@ -141,3 +141,82 @@ def test_a_multi_endpoint_source_does_not_auto_disable_in_one_run(tmp_path):
     rows = {r["source_id"]: r for r in health.compute_health(
         tmp_path, registry.load_registry(tmp_path), now=NOW)}
     assert rows["fixture.demo.multi"]["consecutive_failures"] == 5
+
+
+# --- throttles are not evidence -------------------------------------------
+# peeringdb's three sources were refused eight times in one evening under a
+# backoff too short to outlive the window enforcing it. Auto-disable is a
+# one-way door, so counting a 429 the way a 404 is counted would have switched
+# off three live sources over a cadence nobody had asked about.
+
+def test_throttled_days_never_reach_the_threshold(tmp_path):
+    path = write_source_yaml(tmp_path, "fixture.demo.throttled", "https://example.com/api")
+    add_row(tmp_path, "fixture.demo.throttled", 20, "first_capture")
+    for day in range(21, 28):       # seven straight days, past a threshold of five
+        add_row(tmp_path, "fixture.demo.throttled", day, "error",
+                "retries_exhausted_status_429")
+
+    sources = registry.load_registry(tmp_path)
+    assert run_health(tmp_path, sources, now=NOW) == []
+    assert "status: active" in path.read_text()
+
+    row = health_csv(tmp_path)["fixture.demo.throttled"]
+    assert row["consecutive_failures"] == "0"
+    assert row["consecutive_throttled"] == "7"
+
+
+def test_throttled_day_neither_counts_nor_resets(tmp_path):
+    """A refusal is a non-observation: it says nothing either way."""
+    write_source_yaml(tmp_path, "fixture.demo.mixed", "https://example.com/api")
+    add_row(tmp_path, "fixture.demo.mixed", 20, "first_capture")
+    for day, reason in [(21, "bad_status_404"), (22, "throttled_status_503"),
+                        (23, "bad_status_404"), (24, "throttled_status_429"),
+                        (25, "bad_status_404")]:
+        add_row(tmp_path, "fixture.demo.mixed", day, "error", reason)
+
+    run_health(tmp_path, registry.load_registry(tmp_path), now=NOW)
+    row = health_csv(tmp_path)["fixture.demo.mixed"]
+    assert row["consecutive_failures"] == "3"      # the 404s, uninterrupted
+    assert row["consecutive_throttled"] == "2"
+
+
+def test_a_success_still_ends_the_run(tmp_path):
+    write_source_yaml(tmp_path, "fixture.demo.recovered", "https://example.com/api")
+    add_row(tmp_path, "fixture.demo.recovered", 20, "error", "bad_status_404")
+    add_row(tmp_path, "fixture.demo.recovered", 21, "changed")
+    add_row(tmp_path, "fixture.demo.recovered", 22, "error", "throttled_status_429")
+
+    run_health(tmp_path, registry.load_registry(tmp_path), now=NOW)
+    row = health_csv(tmp_path)["fixture.demo.recovered"]
+    assert row["consecutive_failures"] == "0"
+    assert row["consecutive_throttled"] == "1"
+
+
+def test_quarantine_is_never_a_throttle(tmp_path):
+    """A gate result is drift in the page. The bytes arrived; we rejected them.
+
+    The reason string can still carry the digits -- `bad_status_429` is a gate
+    verdict, not a rate limit -- so the classifier keys on the outcome first.
+    """
+    path = write_source_yaml(tmp_path, "fixture.demo.gated", "https://example.com/api")
+    add_row(tmp_path, "fixture.demo.gated", 20, "first_capture")
+    for day in range(21, 26):
+        add_row(tmp_path, "fixture.demo.gated", day, "quarantined", "bad_status_429")
+
+    disabled = run_health(tmp_path, registry.load_registry(tmp_path), now=NOW)
+    assert [d["source_id"] for d in disabled] == ["fixture.demo.gated"]
+    assert "status: auto_disabled" in path.read_text()
+    assert health_csv(tmp_path)["fixture.demo.gated"]["consecutive_throttled"] == "0"
+
+
+def test_a_day_that_also_succeeded_outranks_both(tmp_path):
+    """Multi-endpoint sources mix outcomes within one run."""
+    write_source_yaml(tmp_path, "fixture.demo.partial", "https://example.com/api")
+    add_row(tmp_path, "fixture.demo.partial", 21, "error", "throttled_status_429")
+    add_row(tmp_path, "fixture.demo.partial", 21, "changed")
+    add_row(tmp_path, "fixture.demo.partial", 21, "error", "bad_status_404")
+
+    run_health(tmp_path, registry.load_registry(tmp_path), now=NOW)
+    row = health_csv(tmp_path)["fixture.demo.partial"]
+    assert row["consecutive_failures"] == "0"
+    assert row["consecutive_throttled"] == "0"

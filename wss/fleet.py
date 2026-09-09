@@ -28,6 +28,8 @@ from . import registry
 # rot:   a specific source is failing and needs a retire/repoint call
 # drift: config disagrees with itself; not yet losing data
 SEVERITY = ("dead", "blind", "rot", "drift")
+# Three refusals in a row is a pattern; one is an evening.
+THROTTLE_DAYS = 3
 
 STALE_FACTOR = 2.0        # staleness beyond 2x the promised interval is a stall
 # Majors still shipping a Node 20 entrypoint. GitHub force-runs them on Node 24
@@ -289,6 +291,19 @@ def scan_repo(repo: Path) -> list[Finding]:
                                      f"{row.get('consecutive_failures', '?')} consecutive failures",
                                      "retire it, repoint the URL, or fix the gate -- it is off until you do"))
             continue
+        # A run of throttled days is deliberately kept out of
+        # consecutive_failures, which means nothing would ever say it out loud
+        # unless this did. The source is alive and refusing us; that is a
+        # cadence problem with an owner, not a dead endpoint.
+        throttled = _float(row.get("consecutive_throttled")) or 0
+        if throttled >= THROTTLE_DAYS:
+            found.append(Finding(
+                "rot", "throttled", name, sid,
+                f"{throttled:.0f} straight days refused for rate (429/503), "
+                f"not counted toward auto-disable",
+                "the publisher is answering and we are asking wrong -- raise "
+                "delay_seconds on the endpoint or drop the cadence a step. It "
+                "will not switch itself off, so it will sit here until you do"))
         expected, stale = _float(row.get("expected_interval_h")), _float(row.get("staleness_h"))
         if expected and stale and stale > expected * STALE_FACTOR:
             found.append(Finding("rot", "stalled", name, sid,

@@ -6,7 +6,9 @@ The contract:
   3. A failed gate quarantines the response; it never enters the archive.
   4. Failures are loud: any error/quarantined outcome makes the run red.
   5. Identifiable user-agent (WSS_CONTACT), robots.txt honoured,
-     per-host delay, 3 retries with exponential backoff.
+     per-host delay, 3 retries with exponential backoff. A throttle
+     (429/503) waits on its own far longer ladder, and on Retry-After
+     when the publisher names one.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ import urllib.robotparser
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Callable
 
@@ -32,7 +35,48 @@ from .registry import Endpoint, Source, load_registry, parse_shard, select, shar
 
 MAX_RETRIES = 3
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+# A 500 is the publisher's bug and may clear on the next breath. A 429 is the
+# publisher stating that the RATE is wrong, and a retry two seconds later
+# re-earns it by construction. PeeringDB refused three sources eight times in
+# one evening under a 2/4/8-second ladder, not one wait of which outlived the
+# window being enforced -- ten failures that read as a dying source and were
+# only ever a cadence we never asked about. Throttles get their own, far
+# longer, ladder, and Retry-After beats both: when the publisher names a
+# number, guessing is strictly worse.
+THROTTLE_STATUS = {429, 503}
+THROTTLE_RETRY_BASE = 30.0
+# Ceiling on any single wait. A publisher is allowed to say "come back in six
+# hours"; a scheduled run is not allowed to obey it.
+RETRY_AFTER_CAP = 300.0
+# ...and a ceiling on ALL throttle waits in one Fetcher's life, because the
+# per-wait cap alone still lets a fleet-wide throttle turn one run into hours
+# of sleeping. When the budget is spent the run ends early and the manifest
+# records a throttle, which no longer counts toward auto-disable.
+THROTTLE_BUDGET_SECONDS = 900.0
 ROBOTS_AGENT = "wss"
+
+
+def parse_retry_after(value: str, now: datetime | None = None) -> float | None:
+    """Seconds to wait per RFC 9110 Retry-After: delta-seconds or HTTP-date.
+
+    None when absent or unparseable, which is the caller's cue to fall back to
+    its own ladder rather than to retry immediately.
+    """
+    value = (value or "").strip()
+    if not value:
+        return None
+    if value.isdigit():
+        return float(value)
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError, IndexError):
+        return None
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    now = now or datetime.now(timezone.utc)
+    return max(0.0, (when - now).total_seconds())
 
 
 class ContactMissing(RuntimeError):
@@ -174,12 +218,26 @@ class FetchResult:
 class Fetcher:
     """Polite HTTP client: per-host delay, robots cache, retries with backoff."""
 
-    def __init__(self, contact: str, session: requests.Session | None = None, retry_base: float | None = None):
+    def __init__(self, contact: str, session: requests.Session | None = None,
+                 retry_base: float | None = None, throttle_base: float | None = None,
+                 throttle_budget: float | None = None):
         self.session = session or requests.Session()
         self.session.headers["User-Agent"] = user_agent(contact)
         if retry_base is None:
             retry_base = float(os.environ.get("WSS_RETRY_BASE", "2"))
         self.retry_base = retry_base
+        if throttle_base is None:
+            # retry_base=0 is the "never sleep" switch the test suite sets, and
+            # it has to mean never, or a simulated 429 would sit for 30 real
+            # seconds inside a unit test.
+            throttle_base = 0.0 if retry_base == 0 else float(
+                os.environ.get("WSS_THROTTLE_BASE", THROTTLE_RETRY_BASE))
+        self.throttle_base = throttle_base
+        if throttle_budget is None:
+            throttle_budget = float(
+                os.environ.get("WSS_THROTTLE_BUDGET", THROTTLE_BUDGET_SECONDS))
+        self.throttle_budget = throttle_budget
+        self._throttle_spent = 0.0
         self._last_hit: dict[str, float] = {}
         self._robots: dict[str, tuple[urllib.robotparser.RobotFileParser | None, str]] = {}
 
@@ -192,6 +250,21 @@ class Fetcher:
 
     def _mark(self, host: str) -> None:
         self._last_hit[host] = time.monotonic()
+
+    def _retry_sleep(self, seconds: float, throttled: bool) -> bool:
+        """Wait before a retry. False when the shared throttle budget is spent.
+
+        Only throttle waits draw on the budget; ordinary 5xx backoff is seconds
+        and does not need rationing.
+        """
+        seconds = min(max(seconds, 0.0), RETRY_AFTER_CAP)
+        if throttled:
+            if self._throttle_spent + seconds > self.throttle_budget:
+                return False
+            self._throttle_spent += seconds
+        if seconds:
+            time.sleep(seconds)
+        return True
 
     def robots_allows(self, url: str, delay: float) -> tuple[bool, str]:
         """(allowed, warning). Unreachable robots.txt allows with a warning."""
@@ -251,9 +324,13 @@ class Fetcher:
                 payload = json.dumps(endpoint.body or {}, sort_keys=True, separators=(",", ":")).encode()
                 headers["Content-Type"] = "application/json"
         last_reason = "fetch_failed_unknown"
+        next_wait, next_throttled = 0.0, False
         for attempt in range(MAX_RETRIES + 1):
-            if attempt:
-                time.sleep(self.retry_base * (2 ** (attempt - 1)))
+            if attempt and not self._retry_sleep(next_wait, next_throttled):
+                # Budget spent. Stop rather than hammer; the reason says so, so
+                # health can tell "we ran out of patience" from "it is gone".
+                last_reason += "_budget_exhausted"
+                break
             self._polite_wait(host, endpoint.delay_seconds)
             try:
                 resp = self.session.request(
@@ -263,10 +340,23 @@ class Fetcher:
             except requests.RequestException as exc:
                 self._mark(host)
                 last_reason = f"fetch_failed_{type(exc).__name__}"
+                # A transport error carries no Retry-After and no status, so it
+                # takes the short ladder. It must still SET one: the wait is
+                # computed from the previous response now, and leaving it at
+                # zero would retry a refused connection three times instantly.
+                next_wait, next_throttled = self.retry_base * (2 ** attempt), False
                 continue
             self._mark(host)
             if resp.status_code in RETRYABLE_STATUS:
-                last_reason = f"retries_exhausted_status_{resp.status_code}"
+                next_throttled = resp.status_code in THROTTLE_STATUS
+                if next_throttled:
+                    last_reason = f"throttled_status_{resp.status_code}"
+                    base = self.throttle_base
+                else:
+                    last_reason = f"retries_exhausted_status_{resp.status_code}"
+                    base = self.retry_base
+                named = parse_retry_after(resp.headers.get("Retry-After", ""))
+                next_wait = named if named is not None else base * (2 ** attempt)
                 continue
             return FetchResult(
                 status=resp.status_code,

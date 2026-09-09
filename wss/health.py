@@ -4,6 +4,14 @@ At fleet scale something is always broken. Five consecutive failures flip a
 source to auto_disabled and surface it in state/auto_disabled.json (the
 workflow opens a GitHub issue from that file). Triage is a weekly pass over
 a sorted table, never a stream of alerts.
+
+NOT EVERY FAILURE IS EVIDENCE. A 429 or a 503 is the publisher answering --
+the service exists, and the rate or the moment is wrong. Counting those
+alongside a 404 meant peeringdb's three sources spent an evening walking
+toward a switch-off that would have been permanent (auto-disable only ever
+flips one way) over a cadence nobody had asked about. Throttled days are
+counted separately, do not reach the threshold, and do not reset it either:
+they are non-observations, and the fleet scan makes a run of them loud.
 """
 
 from __future__ import annotations
@@ -24,6 +32,7 @@ HEALTH_COLUMNS = [
     "last_success_at",
     "last_attempt_at",
     "consecutive_failures",
+    "consecutive_throttled",  # trailing days refused for RATE, not counted above
     "expected_interval_h",
     "staleness_h",
     "gate_fail_rate_28d",
@@ -31,6 +40,35 @@ HEALTH_COLUMNS = [
 ]
 
 AUTO_DISABLE_THRESHOLD = 5
+
+# The line is drawn at "the publisher answered". A 429 or 503 is a statement
+# that the service is there and we asked wrong. A connection error or a
+# timeout is indistinguishable from a host that no longer exists, so it stays
+# countable -- otherwise a decommissioned URL would never disable itself.
+THROTTLE_STATUSES = {"429", "503"}
+# Matches the current reason (`throttled_status_429`), the historical one
+# (`retries_exhausted_status_429`, which is what the eight peeringdb rows
+# already in the manifest say), and the budget-exhausted suffix.
+THROTTLE_REASON = re.compile(r"status_(?:429|503)")
+
+# Best-first, so a day with any success is a success regardless of what else
+# happened in it, and a day with any real breakage outranks a throttle.
+_DAY_RANK = {"ok": 2, "throttled": 1, "broken": 0}
+
+
+def _day_state(row: dict) -> str:
+    """What one manifest row says about the day it landed in."""
+    outcome = row.get("outcome", "")
+    if outcome in manifest.SUCCESS_OUTCOMES:
+        return "ok"
+    # A quarantine is a GATE result -- the bytes arrived and failed our own
+    # floor. That is drift in the page, never a rate limit.
+    if outcome == "error" and (
+        row.get("http_status") in THROTTLE_STATUSES
+        or THROTTLE_REASON.search(row.get("reason") or "")
+    ):
+        return "throttled"
+    return "broken"
 
 
 def _hours_between(later: str, earlier: str) -> float:
@@ -55,7 +93,7 @@ def compute_health(root: Path | str, sources: list[Source], now: datetime | None
         # fda.recalls.cder has five yearly endpoints and auto-disabled on its
         # first blocked run, while a single-endpoint source on the same blocked
         # host survived. A 304-endpoint source would have scored 304.
-        by_day: dict[str, bool] = {}          # day -> did anything succeed
+        by_day: dict[str, str] = {}       # day -> ok | throttled | broken
         for row in manifest.iter_rows(root, source.source_id):
             outcome = row.get("outcome", "")
             if outcome == "skipped":
@@ -65,19 +103,29 @@ def compute_health(root: Path | str, sources: list[Source], now: datetime | None
             if outcome in manifest.SUCCESS_OUTCOMES:
                 first_success = first_success or row["fetched_at"]
                 last_success = row["fetched_at"]
-                by_day[day] = True
-            elif outcome in manifest.FAILURE_OUTCOMES:
-                by_day.setdefault(day, False)
+            if outcome in manifest.SUCCESS_OUTCOMES or outcome in manifest.FAILURE_OUTCOMES:
+                state = _day_state(row)
+                prev = by_day.get(day)
+                if prev is None or _DAY_RANK[state] > _DAY_RANK[prev]:
+                    by_day[day] = state
             if _hours_between(now_iso, row["fetched_at"]) <= 28 * 24:
                 attempts_28d += 1
                 if outcome == "quarantined":
                     quarantined_28d += 1
-        # A day counts against the source only if NOTHING succeeded that day.
+        # A day counts against the source only if NOTHING succeeded that day --
+        # and a throttled day counts against nothing at all. It neither
+        # increments the run nor resets it, because "you asked too fast" is no
+        # evidence either way about whether the source still exists.
         consecutive = 0
+        throttled_days = 0
         for day in sorted(by_day, reverse=True):
-            if by_day[day]:
+            state = by_day[day]
+            if state == "ok":
                 break
-            consecutive += 1
+            if state == "throttled":
+                throttled_days += 1
+            else:
+                consecutive += 1
         staleness = f"{_hours_between(now_iso, last_success):.1f}" if last_success else ""
         fail_rate = f"{quarantined_28d / attempts_28d:.3f}" if attempts_28d else ""
         out.append(
@@ -87,6 +135,7 @@ def compute_health(root: Path | str, sources: list[Source], now: datetime | None
                 "last_success_at": last_success,
                 "last_attempt_at": last_attempt,
                 "consecutive_failures": consecutive,
+                "consecutive_throttled": throttled_days,
                 "expected_interval_h": CADENCE_HOURS[source.cadence],
                 "staleness_h": staleness,
                 "gate_fail_rate_28d": fail_rate,
@@ -142,6 +191,7 @@ def apply_auto_disable(
             {
                 "source_id": source.source_id,
                 "consecutive_failures": int(row["consecutive_failures"]),
+                "consecutive_throttled": int(row.get("consecutive_throttled") or 0),
                 "last_success_at": row["last_success_at"],
                 "last_attempt_at": row["last_attempt_at"],
                 "registry_file": str(source.path.name),

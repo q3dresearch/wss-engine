@@ -76,7 +76,8 @@ def make_repo(
                 fh,
                 fieldnames=[
                     "source_id", "first_success_at", "last_success_at", "last_attempt_at",
-                    "consecutive_failures", "expected_interval_h", "staleness_h",
+                    "consecutive_failures", "consecutive_throttled",
+                    "expected_interval_h", "staleness_h",
                     "gate_fail_rate_28d", "status",
                 ],
             )
@@ -86,6 +87,7 @@ def make_repo(
                     {
                         "source_id": sid, "first_success_at": "", "last_success_at": "",
                         "last_attempt_at": "", "consecutive_failures": "0",
+                        "consecutive_throttled": "0",
                         "expected_interval_h": "168", "staleness_h": "10",
                         "gate_fail_rate_28d": "0.0", "status": "active",
                     }
@@ -488,3 +490,50 @@ def test_a_recovered_source_left_disabled_is_dead_not_rot(tmp_path):
     assert found["demo.api.recovered"].severity == "dead"   # losing data right now
     assert found["demo.api.broken"].kind == "auto_disabled"
     assert found["demo.api.broken"].severity == "rot"
+
+
+def test_a_throttled_source_is_loud_even_though_it_will_never_disable(tmp_path):
+    """The exemption in health.py is what makes this finding necessary.
+
+    A run of 429s is deliberately kept out of consecutive_failures, so nothing
+    would ever say it out loud unless the scan did -- and it will sit there
+    forever, because a source that never reaches the threshold never flips.
+    """
+    repo = make_repo(tmp_path, "wss-alpha")
+    path = repo / "health" / "health.csv"
+    rows = list(csv.DictReader(path.open()))
+    rows[0]["consecutive_throttled"] = "6"
+    with path.open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(rows[0]))
+        w.writeheader()
+        w.writerows(rows)
+
+    found = {f.kind: f for f in fleet.scan(fleet.find_repos(tmp_path))}
+    assert found["throttled"].severity == "rot"
+    assert "429" in found["throttled"].detail
+    assert "delay_seconds" in found["throttled"].decision
+
+
+def test_one_throttled_evening_is_not_a_finding(tmp_path):
+    repo = make_repo(tmp_path, "wss-alpha")
+    path = repo / "health" / "health.csv"
+    rows = list(csv.DictReader(path.open()))
+    rows[0]["consecutive_throttled"] = "2"
+    with path.open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(rows[0]))
+        w.writeheader()
+        w.writerows(rows)
+    assert "throttled" not in kinds(fleet.scan(fleet.find_repos(tmp_path)))
+
+
+def test_a_health_table_from_an_older_engine_still_scans(tmp_path):
+    """consecutive_throttled is new; repos in the fleet lag the engine."""
+    repo = make_repo(tmp_path, "wss-alpha")
+    path = repo / "health" / "health.csv"
+    rows = list(csv.DictReader(path.open()))
+    fields = [f for f in rows[0] if f != "consecutive_throttled"]
+    with path.open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=fields, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+    assert "throttled" not in kinds(fleet.scan(fleet.find_repos(tmp_path)))

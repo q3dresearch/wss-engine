@@ -10,16 +10,18 @@ stream of alerts.
 
 ```
 source_id, first_success_at, last_success_at, last_attempt_at,
-consecutive_failures, expected_interval_h, staleness_h,
-gate_fail_rate_28d, status
+consecutive_failures, consecutive_throttled, expected_interval_h,
+staleness_h, gate_fail_rate_28d, status
 ```
 
 `first_success_at` → `last_success_at` is each series' coverage range — the
 answer to "from when to when does this data exist", kept machine-readable
 for every source including retired ones.
 
-- `consecutive_failures` — trailing `error`/`quarantined` rows since the last
-  success; `skipped` (robots) counts as neither.
+- `consecutive_failures` — trailing days of real breakage since the last
+  success; `skipped` (robots) counts as neither, and neither does a throttle.
+- `consecutive_throttled` — trailing days where every failure was a `429` or
+  `503`. Counted separately and never against the threshold. See below.
 - `expected_interval_h` — from cadence (weekly=168, monthly=720,
   quarterly=2160); compare with `staleness_h` to spot silent stalls.
 - `gate_fail_rate_28d` — quarantined ÷ attempts over the last 28 days; a
@@ -43,6 +45,44 @@ so a death is archived as evidence instead of counted as a failure.
 
 `--dry-run` computes the table without flipping anything; `--threshold N`
 overrides the default of 5.
+
+## A throttle is not evidence
+
+**A `429` or `503` does not count toward auto-disable.** The line is drawn at
+*the publisher answered*: a rate limit is a statement that the service is
+there and we asked wrong. A connection error or a timeout is indistinguishable
+from a host that no longer exists, so those stay countable — otherwise a
+decommissioned URL would never disable itself. A quarantine is a gate result,
+never a rate limit, however the reason string reads.
+
+A throttled day does not increment the run and **does not reset it either**.
+It is a non-observation: we learned nothing about whether the source exists.
+A `404`, a throttle, then another `404` is two consecutive failures, not one.
+
+This matters because auto-disable is a one-way door. `peeringdb.*` was refused
+eight times across three sources in a single evening — under a 2/4/8-second
+backoff in which no wait ever outlived the window enforcing it — and was two
+evenings from being switched off permanently over a cadence nobody had asked
+about.
+
+The exemption is why the fleet scan reports `throttled` at three straight
+days: a source that never reaches the threshold never flips, so nothing else
+would ever say it out loud. The fix is on our side — raise `delay_seconds` on
+the endpoint, or drop the cadence a step.
+
+### Retry, on the publisher's terms
+
+`Retry-After` is honoured when present (delta-seconds or HTTP-date), capped at
+`RETRY_AFTER_CAP` (300s) — a publisher may say "come back in six hours"; a
+scheduled run may not obey. Absent the header, a throttle takes its own ladder
+(30/60/120s) rather than the 5xx one (2/4/8s), because retrying a rate limit
+two seconds later re-earns it by construction.
+
+All throttle waits in one run share `THROTTLE_BUDGET_SECONDS` (900s). When it
+is spent the run stops sleeping and the reason gains a `_budget_exhausted`
+suffix — which is still a throttle, so it still does not count. Tune with
+`WSS_THROTTLE_BASE` and `WSS_THROTTLE_BUDGET`; `WSS_RETRY_BASE=0` disables all
+retry sleeping, throttles included.
 
 
 ## A rotted source no longer reds the run
