@@ -157,7 +157,8 @@ def cmd_derive(args: argparse.Namespace, root: Path) -> int:
 
 def cmd_fleet_scan(args: argparse.Namespace, root: Path) -> int:
     out, code = fleet.run_scan(args.dir or root, as_json=args.json,
-                               fail_on=args.fail_on, ledger=args.ledger)
+                               fail_on=args.fail_on, ledger=args.ledger,
+                               workflow_states=args.workflow_states)
     print(out)
     return code
 
@@ -240,6 +241,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--dir", help="directory holding the repo checkouts (default: --root)")
     p.add_argument("--json", action="store_true", help="machine-readable findings")
+    p.add_argument("--workflow-states",
+                   help="JSON of {repo: {workflow: state}} from the GitHub API. "
+                        "Without it the scan cannot tell a workflow GitHub has "
+                        "switched off from one that is simply quiet.")
     p.add_argument(
         "--fail-on",
         choices=fleet.SEVERITY,

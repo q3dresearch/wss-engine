@@ -434,3 +434,32 @@ def test_a_missing_ledger_is_an_error_not_an_empty_history(tmp_path):
     make_repo(tmp_path, "wss-alpha")
     with pytest.raises(FileNotFoundError, match="ledger not found"):
         fleet.load_incidents(tmp_path / "nope.jsonl")
+
+
+def test_disabled_workflow_is_a_finding():
+    """A workflow GitHub switched off is the quietest failure in the fleet.
+
+    Nothing fails, nothing turns red, no run appears. Every other check in
+    fleet.py keeps passing, because they all read files still sitting there
+    from the last successful run.
+    """
+    states = {"wss-demo": {"capture-monthly": "disabled_inactivity",
+                           "health": "disabled_manually",
+                           "derive": "active"}}
+    found = {f.entity: f for f in fleet.scan_workflow_states(states)}
+    assert set(found) == {"capture-monthly", "health"}      # active one is silent
+    # A capture that cannot fire is losing data now; the rest mean nobody is
+    # watching, which is bad later rather than immediately.
+    assert found["capture-monthly"].severity == "dead"
+    assert found["health"].severity == "blind"
+    assert "60 days" in found["capture-monthly"].detail
+
+
+def test_scan_without_states_reports_nothing_about_workflows(tmp_path):
+    assert fleet.scan_workflow_states({}) == []
+
+
+def test_run_scan_refuses_a_missing_states_file(tmp_path):
+    """Silently checking nothing is how a clean report gets trusted."""
+    with pytest.raises(FileNotFoundError, match="reports a clean fleet"):
+        fleet.run_scan(tmp_path, workflow_states=tmp_path / "absent.json")

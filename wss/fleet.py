@@ -301,10 +301,50 @@ def scan_repo(repo: Path) -> list[Finding]:
     return found
 
 
-def scan(repos: list[Path]) -> list[Finding]:
+def scan_workflow_states(states: dict) -> list[Finding]:
+    """Findings from GitHub's own view of whether a workflow will ever fire.
+
+    A scheduled workflow that GitHub has switched off is the quietest failure
+    there is. Nothing fails, nothing turns red, no run appears -- the repo
+    simply stops collecting, and every other check in this file keeps passing
+    because they all read files that are still sitting there from the last
+    successful run.
+
+    The documented trigger is inactivity: "In a public repository, scheduled
+    workflows are automatically disabled when no repository activity has
+    occurred in 60 days." Sixty days is also long enough that nobody remembers
+    what changed, and a wss repo that stops for sixty days has lost sixty days
+    that cannot be re-fetched.
+
+    `states` is {repo: {workflow_name: state}}, supplied by the caller because
+    it needs a GitHub token and everything else here is a pure function of
+    files on disk.
+    """
+    found: list[Finding] = []
+    for repo, workflows in sorted(states.items()):
+        for name, state in sorted(workflows.items()):
+            if state == "active":
+                continue
+            # A capture that cannot fire is losing data now; the rest mean
+            # nobody is watching, which is bad later rather than immediately.
+            capturing = "capture" in name.lower()
+            reason = ("disabled by GitHub after 60 days without repository "
+                      "activity" if state == "disabled_inactivity" else
+                      f"state is {state!r}")
+            found.append(Finding(
+                "dead" if capturing else "blind", "workflow_disabled", repo, name,
+                f"workflow will not fire -- {reason}",
+                "re-enable it in Actions, then work out what stopped the "
+                "repository looking active. A monthly bot commit may not count."))
+    return found
+
+
+def scan(repos: list[Path], workflow_states: dict | None = None) -> list[Finding]:
     found: list[Finding] = []
     for repo in repos:
         found.extend(scan_repo(repo))
+    if workflow_states:
+        found.extend(scan_workflow_states(workflow_states))
 
     # Pin skew is the one thing only visible across repos.
     pins = {r.name: _pin(r) for r in repos if _pin(r)}
@@ -496,10 +536,20 @@ def render(findings: list[Finding], repos: list[Path]) -> str:
 
 
 def run_scan(root: Path | str, *, as_json: bool = False, fail_on: str | None = None,
-             ledger: Path | str | None = None) -> tuple[str, int]:
+             ledger: Path | str | None = None,
+             workflow_states: Path | str | None = None) -> tuple[str, int]:
     root = Path(root)
     repos = find_repos(root)
-    findings = scan(repos)
+    states = {}
+    if workflow_states:
+        path = Path(workflow_states)
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"workflow states not found: {path}. A sweep told to check "
+                f"whether workflows can fire, that silently checks nothing, "
+                f"reports a clean fleet it never looked at.")
+        states = json.loads(path.read_text())
+    findings = scan(repos, states)
     if ledger:
         findings = apply_incidents(findings, load_incidents(ledger))
         findings.sort(key=lambda f: (SEVERITY.index(f.severity), f.repo, f.kind))
