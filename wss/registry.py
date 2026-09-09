@@ -38,7 +38,19 @@ GATE_KEYS = (
     "must_not_contain",
     "max_shrink_pct",
 )
-ENDPOINT_KEYS = ("url", "delay_seconds", "timeout_seconds", "method", "body", "encoding")
+ENDPOINT_KEYS = ("url", "delay_seconds", "timeout_seconds", "method", "body",
+                 "encoding", "lookback")
+
+# Publishers that name the date in the filename and keep only the last few.
+# Azure ships ServiceTags_Public_<Monday>.json and retains about two weeks:
+# 20260907 and 20260831 answer, 20260824 is already purged. A literal URL
+# captures for a fortnight and then 404s forever.
+#
+# The token is expanded at FETCH time; the template stays the endpoint's
+# identity, so the manifest keeps one continuous history instead of starting a
+# new one every period.
+URL_TOKEN = re.compile(r"\{(day|monday|month_end):([^}]+)\}")
+URL_ANCHORS = ("day", "monday", "month_end")
 REQUIRED_KEYS = (
     "source_id",
     "status",
@@ -86,6 +98,34 @@ class Endpoint:
     # takes JSON; FDA's own iRES takes form-urlencoded with the whole query as
     # a single `payload` string. Same agency, same week, two encodings.
     encoding: str = "json"
+    # How many extra periods back to try if the newest is not there yet. These
+    # publishers post on a schedule that slips, and the current period is often
+    # not written until part-way through it.
+    lookback: int = 0
+
+    def resolve(self, now=None) -> list[str]:
+        """Concrete URLs to try, newest first. A plain URL resolves to itself."""
+        m = URL_TOKEN.search(self.url)
+        if not m:
+            return [self.url]
+        from datetime import date, timedelta
+        anchor, fmt = m.group(1), m.group(2)
+        today = now or date.today()
+        out = []
+        for step in range(self.lookback + 1):
+            if anchor == "day":
+                d = today - timedelta(days=step)
+            elif anchor == "monday":
+                d = today - timedelta(days=today.weekday()) - timedelta(weeks=step)
+            else:  # month_end -- the last day of the month, stepping back months
+                y, mo = today.year, today.month - step
+                while mo < 1:
+                    mo += 12
+                    y -= 1
+                nxt = date(y + (mo == 12), (mo % 12) + 1, 1)
+                d = nxt - timedelta(days=1)
+            out.append(self.url[:m.start()] + d.strftime(fmt) + self.url[m.end():])
+        return out
 
     def body_key(self) -> str:
         """Stable short hash of the request body, or '' for a plain GET.
@@ -222,6 +262,28 @@ def _validate_scheme(auth: dict, problems: list[str], where: str) -> None:
         problems.append(f"{where}: scheme has no effect without bearer_env")
 
 
+def _validate_url_template(url: str, lookback: object, problems: list[str], where: str) -> None:
+    """A date token and a lookback only make sense together."""
+    tokens = URL_TOKEN.findall(url or "")
+    if len(tokens) > 1:
+        problems.append(f"{where}: more than one date token in url; one period per endpoint")
+    if not isinstance(lookback, int) or isinstance(lookback, bool) or not 0 <= lookback <= 12:
+        problems.append(f"{where}: lookback must be an integer 0-12")
+        return
+    if tokens and lookback == 0:
+        problems.append(
+            f"{where}: url has a {{{tokens[0][0]}:...}} token but lookback is 0. The "
+            f"current period is usually not published yet -- Azure's Monday file "
+            f"appears part-way through its own week -- so a lookback of 0 captures "
+            f"nothing until the exact moment the publisher writes it")
+    if not tokens and lookback:
+        problems.append(f"{where}: lookback is set but the url has no date token to step")
+    if tokens:
+        anchor, fmt = tokens[0]
+        if "%" not in fmt:
+            problems.append(f"{where}: date token format {fmt!r} has no strftime directive")
+
+
 def _validate_endpoints(endpoints: object, problems: list[str], where: str) -> list[Endpoint]:
     parsed: list[Endpoint] = []
     if not isinstance(endpoints, list) or not endpoints:
@@ -276,8 +338,12 @@ def _validate_endpoints(endpoints: object, problems: list[str], where: str) -> l
             encoding = "json"
         if ep.get("encoding") is not None and method != "POST":
             problems.append(f"{ep_where}: encoding only applies to a POST body")
+        lookback = ep.get("lookback", 0)
+        _validate_url_template(url, lookback, problems, ep_where)
         parsed.append(Endpoint(url=url, delay_seconds=float(delay), timeout_seconds=float(timeout),
-                               method=method, body=body, encoding=encoding))
+                               method=method, body=body, encoding=encoding,
+                               lookback=int(lookback) if isinstance(lookback, int)
+                               and not isinstance(lookback, bool) else 0))
     return parsed
 
 

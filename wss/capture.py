@@ -209,8 +209,13 @@ class Fetcher:
         etag: str = "",
         last_modified: str = "",
         extra_headers: dict[str, str] | None = None,
+        url: str | None = None,
     ) -> FetchResult:
-        host = urllib.parse.urlsplit(endpoint.url).netloc
+        # `url` overrides the endpoint's own when it carries a date token. The
+        # endpoint keeps the template as its identity so the manifest stays one
+        # continuous history; only the request goes to the resolved address.
+        url = url or endpoint.url
+        host = urllib.parse.urlsplit(url).netloc
         headers = dict(extra_headers or {})
         # Conditional requests are a GET concept. A POST is not cacheable, gets
         # no ETag, and can never answer 304 — sending If-None-Match there would
@@ -237,7 +242,7 @@ class Fetcher:
             self._polite_wait(host, endpoint.delay_seconds)
             try:
                 resp = self.session.request(
-                    endpoint.method, endpoint.url, headers=headers,
+                    endpoint.method, url, headers=headers,
                     data=payload, timeout=endpoint.timeout_seconds,
                 )
             except requests.RequestException as exc:
@@ -310,13 +315,29 @@ def capture_source(
             rows.append(row)
             continue
 
+        # A dated filename resolves to several candidates, newest first: the
+        # current period is often not published yet, and these publishers keep
+        # only a couple. The first that answers wins; if none does, the last
+        # error is what gets reported.
+        candidates = endpoint.resolve()
         try:
-            res = fetcher.fetch(
-                endpoint,
-                etag=(prev or {}).get("etag", ""),
-                last_modified=(prev or {}).get("last_modified", ""),
-                extra_headers=credentials,
-            )
+            for i, candidate in enumerate(candidates):
+                try:
+                    res = fetcher.fetch(
+                        endpoint,
+                        etag=(prev or {}).get("etag", ""),
+                        last_modified=(prev or {}).get("last_modified", ""),
+                        extra_headers=credentials,
+                        url=candidate,
+                    )
+                except FetchError:
+                    if i == len(candidates) - 1:
+                        raise
+                    continue
+                if res.status != 404 or i == len(candidates) - 1:
+                    if len(candidates) > 1:
+                        warnings.append(f"resolved_to={candidate.rsplit('/', 1)[-1]}")
+                    break
         except FetchError as exc:
             row |= {"outcome": "error", "reason": exc.reason, "warnings": ";".join(warnings)}
             manifest.append_row(root, row)
@@ -526,8 +547,24 @@ def doctor(root: Path | str, source_id: str, log: Callable[[str], None] = print)
     ok_all = True
     for endpoint in source.endpoints:
         log("")
-        log(f"{endpoint.method} {endpoint.url}")
-        allowed, robots_warning = fetcher.robots_allows(endpoint.url, endpoint.delay_seconds)
+        # doctor must resolve a date token exactly as capture does. Fetching
+        # the raw template reports 404 on a source that works perfectly, which
+        # is the worst possible answer from the tool you run to decide whether
+        # a source works.
+        candidates = endpoint.resolve()
+        target = candidates[0]
+        if len(candidates) > 1:
+            log(f"{endpoint.method} {endpoint.url}")
+            for c in candidates:
+                probe = fetcher.fetch(endpoint, url=c)
+                log(f"  resolve  : {c.rsplit('/', 1)[-1]} -> {probe.status}")
+                if probe.status != 404:
+                    target = c
+                    break
+            log(f"  using    : {target.rsplit('/', 1)[-1]}")
+        else:
+            log(f"{endpoint.method} {target}")
+        allowed, robots_warning = fetcher.robots_allows(target, endpoint.delay_seconds)
         if robots_warning:
             log(f"  robots   : warning — {robots_warning} (proceeding)")
         if not allowed:
@@ -535,7 +572,7 @@ def doctor(root: Path | str, source_id: str, log: Callable[[str], None] = print)
             ok_all = False
             continue
         try:
-            res = fetcher.fetch(endpoint, extra_headers=credentials)
+            res = fetcher.fetch(endpoint, extra_headers=credentials, url=target)
         except FetchError as exc:
             log(f"  fetch    : FAILED — {exc.reason}")
             ok_all = False

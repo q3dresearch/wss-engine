@@ -175,3 +175,41 @@ def test_size_and_type_gates_are_required(tmp_path, gates, expected):
     write_source_yaml(tmp_path, "fixture.demo.alpha", "https://example.com/api", gates=gates)
     problems = registry.validate_registry(tmp_path)
     assert any(expected in p for p in problems), problems
+
+
+@pytest.mark.parametrize(("url", "lookback", "expected"), [
+    # A token with no lookback captures nothing until the exact moment the
+    # publisher writes the current period's file.
+    ("https://x/f_{monday:%Y%m%d}.json", 0, "lookback is 0"),
+    ("https://x/plain.json", 2, "no date token to step"),
+    ("https://x/f_{monday:nodirective}.json", 1, "no strftime directive"),
+    ("https://x/f_{day:%Y}_{monday:%Y}.json", 1, "more than one date token"),
+    ("https://x/plain.json", 99, "lookback must be an integer 0-12"),
+])
+def test_url_template_validation(tmp_path, url, lookback, expected):
+    problems = []
+    registry._validate_url_template(url, lookback, problems, "fixture.yml[0]")
+    assert any(expected in p for p in problems), problems
+
+
+def test_a_plain_url_needs_no_lookback():
+    problems = []
+    registry._validate_url_template("https://x/plain.json", 0, problems, "w")
+    assert problems == []
+
+
+def test_resolve_keeps_the_template_as_identity():
+    """The manifest keys on identity. If a dated URL became the identity, every
+    period would start a new history and dedupe would never fire."""
+    import datetime
+    e = registry.Endpoint(url="https://x/f_{monday:%Y%m%d}.json", lookback=1)
+    assert e.identity() == "https://x/f_{monday:%Y%m%d}.json"
+    assert e.resolve(datetime.date(2026, 9, 9)) == [
+        "https://x/f_20260907.json", "https://x/f_20260831.json"]
+
+
+def test_month_end_steps_whole_months():
+    import datetime
+    e = registry.Endpoint(url="https://x/Q-{month_end:%m%d%Y}.xlsx", lookback=2)
+    assert e.resolve(datetime.date(2026, 9, 9)) == [
+        "https://x/Q-09302026.xlsx", "https://x/Q-08312026.xlsx", "https://x/Q-07312026.xlsx"]
