@@ -275,6 +275,37 @@ def _suggest_min_bytes(size: int) -> int:
 
 
 def _suggest_entry(report: Report, source_id: str) -> str:
+    """A starter entry, but ONLY from a fetch that actually succeeded.
+
+    Gates are inferred from the observed body, so inferring them from an error
+    page produces an entry that locks the error in. Probing NYISO's queue from
+    a GitHub runner returned `202` with a zero-length body -- a bot-mitigation
+    challenge -- and this function cheerfully suggested `min_bytes: 1` with
+    `content_type_any: [html]`, which validates (1 >= 1) and would have captured
+    the challenge page monthly, forever, reporting success.
+
+    `status: paused` was the only thing standing between that and a live source,
+    and a paused entry is one flip away from active.
+    """
+    if report.status != 200:
+        return (
+            f"# NO STARTER ENTRY: the probe returned {report.status or 'no response'}, not 200.\n"
+            f"#\n"
+            f"# Gates are inferred from the body that came back, so an entry built on\n"
+            f"# this one would encode the error page as the expected payload. Read the\n"
+            f"# raw response first and find out what the publisher is actually saying:\n"
+            f"#\n"
+            f"#   202 / 204 with an empty body -> bot-mitigation challenge; the runner is\n"
+            f"#                                   being asked to run JavaScript\n"
+            f"#   403                          -> bot wall or missing credential\n"
+            f"#   404 under a valid key        -> the block is on the IP, not the auth\n"
+            f"#                                   (accessdata.fda.gov does exactly this)\n"
+            f"#   429 / 503                    -> throttle. Retry with a delay; this is\n"
+            f"#                                   NOT evidence the source is unusable\n"
+            f"#\n"
+            f"# If it answers from your laptop and not here, that is a fact about WHERE\n"
+            f"# the request comes from. Capture it locally or not at all."
+        )
     ext_type = {"json": "json", "csv": "csv", "html": "html", "xml": "xml"}.get(report.kind, report.kind)
     lines = [
         f"source_id: {source_id}",

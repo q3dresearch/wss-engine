@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from wss import cli
+from wss import cli, explore
 from tests.fixture_server import FixtureServer
 
 
@@ -154,3 +154,31 @@ def test_csv_header_becomes_field_candidates(capsys):
     assert "treated as csv" in out
     assert "CSV header: Ticker, Name, As Of, Weight (%)" in out
     assert "content_type_any: [csv]" in out
+
+
+@pytest.mark.parametrize(("status", "size"), [(202, 0), (403, 512), (404, 420), (503, 1200)])
+def test_no_starter_entry_from_a_failed_probe(status, size):
+    """Gates are inferred from the body, so a failed body must not become gates.
+
+    Probing NYISO's interconnection queue from a GitHub runner returned 202
+    with a zero-length body — a bot-mitigation challenge. `_suggest_entry`
+    inferred `min_bytes: 1` and `content_type_any: [html]` from it, which
+    passes validation and would have captured the challenge page monthly,
+    forever, reporting success.
+    """
+    report = explore.Report(url="https://example.test/x", status=status,
+                            size=size, kind="html")
+    out = explore._suggest_entry(report, "fixture.demo.alpha")
+    assert "NO STARTER ENTRY" in out
+    assert str(status) in out
+    assert "min_bytes" not in out
+    assert "source_id:" not in out
+
+
+def test_starter_entry_still_produced_on_200():
+    report = explore.Report(url="https://example.test/x", status=200,
+                            size=240_000, kind="json")
+    out = explore._suggest_entry(report, "fixture.demo.alpha")
+    assert "source_id: fixture.demo.alpha" in out
+    assert "min_bytes: 100000" in out   # half of 240k, rounded down to the 100k step
+    assert "content_type_any: [json]" in out
