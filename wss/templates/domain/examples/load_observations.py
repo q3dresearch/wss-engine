@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""Load derived/observations/*.csv into sqlite and run examples/queries.sql.
+"""Load derived/observations/*.csv.gz into sqlite and run examples/queries.sql.
 
     python examples/load_observations.py [--db observations.db]
 
 Stdlib only. For heavier analysis, DuckDB reads the partitions directly:
 
-    SELECT * FROM read_csv_auto('derived/observations/*.csv');
+    SELECT * FROM read_csv_auto('derived/observations/*.csv.gz');
+
+Partitions are gzipped -- the table is long-format and repetitive, so it
+compresses about 27x. DuckDB, pandas and this script read .gz directly;
+at a shell use `zcat` rather than `head`.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import sqlite3
 from pathlib import Path
 
@@ -36,8 +41,16 @@ def load(db_path: str) -> sqlite3.Connection:
     con.execute(f"CREATE TABLE observations ({', '.join(c + ' TEXT' for c in COLUMNS)})")
     placeholders = ", ".join("?" for _ in COLUMNS)
     total = 0
-    for partition in sorted((REPO / "derived" / "observations").glob("*.csv")):
-        with partition.open(encoding="utf-8", newline="") as fh:
+    obs_dir = REPO / "derived" / "observations"
+    # Both suffixes: a repo that has not re-derived since partitions were
+    # gzipped still holds plain .csv, and globbing one would load half of it.
+    parts = sorted([*obs_dir.glob("*.csv"), *obs_dir.glob("*.csv.gz")],
+                   key=lambda p: p.name)
+    for partition in parts:
+        opener = (lambda: gzip.open(partition, "rt", encoding="utf-8", newline="")
+                  if partition.suffix == ".gz"
+                  else partition.open(encoding="utf-8", newline=""))
+        with opener() as fh:
             rows = [[r[c] for c in COLUMNS] for r in csv.DictReader(fh)]
         con.executemany(f"INSERT INTO observations VALUES ({placeholders})", rows)
         total += len(rows)

@@ -21,7 +21,7 @@ SANDBOX_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SANDBOX_DIR.parent))
 sys.path.insert(0, str(SANDBOX_DIR))
 
-from wss import derive, manifest  # noqa: E402
+from wss import csvio, derive, manifest  # noqa: E402
 from wss.cohort import CohortCriteria, effective_members, select_vintage, write_vintage  # noqa: E402
 from simulate import SOURCE_ID, simulate  # noqa: E402
 
@@ -45,7 +45,7 @@ def load_queries(sql_path: Path) -> dict[str, str]:
 
 def derived_digest(root: Path) -> str:
     h = hashlib.sha256()
-    for path in sorted((root / "derived" / "observations").glob("*.csv")):
+    for path in csvio.partition_paths(root / "derived" / "observations"):
         h.update(path.name.encode())
         h.update(path.read_bytes())
     return h.hexdigest()
@@ -56,9 +56,8 @@ def build_db(root: Path) -> sqlite3.Connection:
     cols = ", ".join(f"{c} TEXT" for c in derive.OBS_COLUMNS)
     con.execute(f"CREATE TABLE observations ({cols})")
     placeholders = ", ".join("?" for _ in derive.OBS_COLUMNS)
-    for path in sorted((root / "derived" / "observations").glob("*.csv")):
-        with path.open(encoding="utf-8", newline="") as fh:
-            rows = [[r[c] for c in derive.OBS_COLUMNS] for r in csv.DictReader(fh)]
+    for path in csvio.partition_paths(root / "derived" / "observations"):
+        rows = [[r[c] for c in derive.OBS_COLUMNS] for r in csvio.read_csv(path)]
         con.executemany(f"INSERT INTO observations VALUES ({placeholders})", rows)
     con.commit()
     return con

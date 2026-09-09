@@ -238,7 +238,10 @@ def scan_repo(repo: Path) -> list[Finding]:
                              "derived/ to the sift's sparse-checkout and accept the download"))
     else:
         biggest = max(
-            ((p.stat().st_size / 1048576, p.name) for p in part_dir.glob("*.csv")),
+            # Both suffixes: a repo mid-changeover holds plain .csv, and a glob
+            # for one would report a fleet as healthy having measured half of it.
+            ((p.stat().st_size / 1048576, p.name)
+             for p in (*part_dir.glob("*.csv"), *part_dir.glob("*.csv.gz"))),
             default=(0.0, ""))
         size_mb, part = biggest
         if size_mb >= PARTITION_WARN_MB:

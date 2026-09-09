@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from . import manifest, storage
-from .csvio import format_value, write_csv
+from .csvio import format_value, partition_paths, write_csv
 from .registry import Source, load_registry
 
 OBS_COLUMNS = [
@@ -221,13 +221,20 @@ def derive(
     written: list[str] = []
     for month in sorted(by_month):
         rows = sorted(by_month[month], key=lambda r: tuple(r[c] for c in OBS_COLUMNS))
-        path = out_dir / f"{month}.csv"
+        path = out_dir / f"{month}.csv.gz"
         write_csv(path, OBS_COLUMNS, rows)
         written.append(path.name)
+        # The plain .csv from before the changeover. Leaving it would mean two
+        # copies of one month, and any reader globbing "*.csv" would quietly
+        # pick the stale one.
+        legacy = out_dir / f"{month}.csv"
+        if legacy.is_file():
+            legacy.unlink()
+            log(f"replaced {legacy.relative_to(root)} with {path.name}")
         log(f"wrote {path.relative_to(root)} ({len(rows)} rows)")
 
     if since is None and out_dir.is_dir():
-        for path in sorted(out_dir.glob("*.csv")):
+        for path in partition_paths(out_dir):
             if path.name not in written:
                 path.unlink()
                 log(f"pruned stale partition {path.relative_to(root)}")

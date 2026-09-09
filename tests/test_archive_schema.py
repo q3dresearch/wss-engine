@@ -10,7 +10,7 @@ import csv
 
 import pytest
 
-from wss import cli, derive, manifest
+from wss import csvio, cli, derive, manifest
 from tests.conftest import write_source_yaml
 from tests.fixture_server import FixtureServer
 
@@ -20,9 +20,8 @@ OPINION_V2 = OPINION_V1.replace("Opinion of the Court.", "Opinion of the Court (
 
 def observations(root):
     rows = []
-    for path in sorted((root / "derived" / "observations").glob("*.csv")):
-        with path.open(encoding="utf-8", newline="") as fh:
-            rows.extend(csv.DictReader(fh))
+    for path in csvio.partition_paths(root / "derived" / "observations"):
+        rows.extend(csvio.read_csv(path))
     return rows
 
 

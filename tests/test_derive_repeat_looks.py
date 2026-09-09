@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 
-from wss import derive
+from wss import csvio, derive
 from tests.conftest import write_source_yaml
 
 BODY = b'{"as_of": "2026-01-15", "items": [{"id": "a", "count": 7}]}'
@@ -51,8 +51,7 @@ def test_unchanged_relook_does_not_duplicate(tmp_path):
     ])
 
     derive.derive(tmp_path, parser_modules=[])
-    rows = list(csv.DictReader(
-        (tmp_path / "derived" / "observations" / "2026-01.csv").open(encoding="utf-8")))
+    rows = csvio.read_csv(tmp_path / "derived" / "observations" / "2026-01.csv.gz")
 
     assert len(rows) == 1, f"expected one observation, got {len(rows)}"
     assert rows[0]["captured_at"] == "2026-01-15T09:00:00Z", \

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import csv
+import gzip
 import json
 
 import pytest
 
-from wss import derive, manifest
+from wss import csvio, derive, manifest
 from wss.storage import LocalGitStore, raw_path
 from tests.conftest import write_source_yaml
 from wss.capture import parse_iso
@@ -49,15 +50,14 @@ def seed_archive(root):
 
 
 def read_partition(root, month="2026-08"):
-    with (root / "derived" / "observations" / f"{month}.csv").open(newline="") as fh:
-        return list(csv.DictReader(fh))
+    return csvio.read_csv(root / "derived" / "observations" / f"{month}.csv.gz")
 
 
 def test_observations_long_format(tmp_path):
     seed_archive(tmp_path)
     derive.register("test.v1", parse_widgets, "3")
     stats = derive.derive(tmp_path)
-    assert stats == {"rows": 3, "partitions": ["2026-08.csv"]}
+    assert stats == {"rows": 3, "partitions": ["2026-08.csv.gz"]}
 
     rows = read_partition(tmp_path)
     assert [list(r) for r in rows] == [[*derive.OBS_COLUMNS]] or True  # header handled by DictReader
@@ -74,11 +74,15 @@ def test_rebuild_is_byte_identical(tmp_path):
     seed_archive(tmp_path)
     derive.register("test.v1", parse_widgets, "3")
     derive.derive(tmp_path)
-    partition = tmp_path / "derived" / "observations" / "2026-08.csv"
+    partition = tmp_path / "derived" / "observations" / "2026-08.csv.gz"
     first = partition.read_bytes()
     derive.derive(tmp_path)
     assert partition.read_bytes() == first
-    assert first.endswith(b"\n") and b"\r" not in first
+    # gzip stores an mtime; csvio pins it to 0 so a rebuild of unchanged
+    # rows is byte-identical and git sees nothing to commit.
+    assert first[:4] == b"\x1f\x8b\x08\x00"
+    text = gzip.decompress(first).decode()
+    assert text.endswith("\n") and "\r" not in text
 
 
 def test_full_rebuild_prunes_stale_partitions(tmp_path):
