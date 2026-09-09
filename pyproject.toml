@@ -4,7 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wss"
-version = "0.6.35"
+# Read from wss/__init__.py, never restated here. Two version strings drifted
+# apart for three releases: the tag v0.6.37 built a wheel stamped 0.6.35, so
+# `pip show wss` and `wss --version` disagreed on a runner about which engine
+# was installed -- the one question the pin exists to answer.
+dynamic = ["version"]
 description = "Registry-driven web-snapshot fleet: scheduled GitHub Actions that capture any observable web page or API verbatim, and derive point-in-time observation tables."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,6 +19,9 @@ dependencies = [
     "requests>=2.28",
 ]
 keywords = ["git-scraping", "open-data", "point-in-time-data", "dataset"]
+
+[tool.setuptools.dynamic]
+version = { attr = "wss.__version__" }
 
 [project.optional-dependencies]
 object = ["boto3>=1.28"]
