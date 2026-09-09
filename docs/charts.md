@@ -83,10 +83,16 @@ Each of these shipped. They are cheap to check and expensive to leave.
 | partial periods plotted whole | a fiscal year opening 1 October reads as a collapse | exclude partial periods and say so on the figure |
 | a gap plotted as a finding | an empty column from an uncaptured year reads as zero | state the capture window on the figure |
 | an unvalidated SVG | the renderer prints a success line for a file that will not parse | parse every output before committing |
+| "N of M" across two units | `773 of 205 sites` — impossible on its face, because 773 is firm-DAYS and 205 is sites | "of" claims a subset. Only use it where the numerator is drawn from the denominator; otherwise name both units |
 
-The last two are this fleet's own: a recall column empty before 2022 because the
-source only covers 2022+, and a chart that shipped as invalid XML because a list
-was interpolated where a string was expected while the script reported success.
+The last three are this fleet's own: a recall column empty before 2022 because
+the source only covers 2022+; a chart that shipped as invalid XML because a list
+was interpolated where a string was expected while the script reported success;
+and a label reading "773 of 205 sites", which happened by reusing a label
+template between two charts whose numerators had different units. "17 of 90
+sites" was true for import alerts, where the numerator is a subset of the
+denominator. Refusal firm-days are not a subset of sites, and the format string
+carried the claim across anyway.
 
 ## Before committing a figure
 
