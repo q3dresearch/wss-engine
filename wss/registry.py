@@ -144,9 +144,24 @@ def _validate_gates(gates: object, problems: list[str], where: str) -> None:
         codes = expect if isinstance(expect, list) else [expect]
         if not codes or not all(isinstance(c, int) and 100 <= c <= 599 for c in codes):
             problems.append(f"{where}: expect_status must be an HTTP status code or list of codes")
+    # min_bytes and content_type_any are REQUIRED, not optional. A publisher that
+    # answers a missing file with 200 + an HTML error page defeats every other
+    # gate: the status is fine, the body is real bytes, and the capture is
+    # recorded as a success. eia.gov does exactly this -- a missing month of
+    # EIA-860M returns 55,723 bytes of HTML, byte-identical across two different
+    # missing months, where the real workbook is ~14 MB. Either gate catches it;
+    # a gates block that omits both catches nothing and says nothing.
     min_bytes = gates.get("min_bytes")
-    if min_bytes is not None and not (isinstance(min_bytes, int) and min_bytes >= 0):
-        problems.append(f"{where}: min_bytes must be a non-negative integer")
+    if min_bytes is None:
+        problems.append(
+            f"{where}: gates.min_bytes is required -- without a floor, a soft-404 "
+            f"error page is captured as a successful fetch")
+    elif not (isinstance(min_bytes, int) and min_bytes >= 1):
+        problems.append(f"{where}: min_bytes must be a positive integer (0 gates nothing)")
+    if gates.get("content_type_any") is None:
+        problems.append(
+            f"{where}: gates.content_type_any is required -- without it, an HTML "
+            f"error page served in place of the real payload passes as data")
     for key in ("content_type_any", "must_contain", "must_not_contain"):
         val = gates.get(key)
         if val is not None and not (

@@ -253,6 +253,23 @@ about what failure looks like, and they protect the archive for years.
 - `expect_status: [200, 404]` — when a 404 is *data* (a tracked entity died)
   rather than a failure.
 
+`min_bytes` and `content_type_any` are **required** on every source, and the
+engine refuses a registry entry that omits either. The reason is the soft-404:
+a publisher that answers a missing file with `200 OK` and an HTML error page
+defeats every other gate at once — the status is fine, the body is real bytes,
+the parser may even survive it, and the capture lands in the manifest as a
+success.
+
+`eia.gov` does this. A missing month of EIA-860M returns **55,723 bytes of
+HTML — byte-identical across two different missing months** — where the real
+workbook is about 14 MB. Either gate catches it; a source that set neither
+would have archived the error page monthly and reported green.
+
+The tell generalises: **identical byte counts across URLs that should differ**
+means one shell is answering for all of them. It is the same observation as
+the SPA test, seen from the other end — there, unrelated paths return the same
+size because the app shell is the response; here, missing months do.
+
 ### 5b. Does the same request return the same bytes?
 
 Fetch the identical URL three times and compare hashes. If they differ while

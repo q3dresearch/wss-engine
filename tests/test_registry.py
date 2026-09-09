@@ -150,3 +150,28 @@ def test_plan_count_prints_only_the_number(tmp_path, capsys, monkeypatch):
     write_source_yaml(tmp_path, "fixture.demo.beta", "https://example.com/b", cadence="monthly")
     assert cli.main(["--root", str(tmp_path), "plan", "--cadence", "monthly", "--shards", "20", "--count"]) == 0
     assert capsys.readouterr().out.strip() == "2"
+
+
+@pytest.mark.parametrize(
+    ("gates", "expected"),
+    [
+        ("gates:\n  expect_status: 200\n  content_type_any: [json]\n", "min_bytes is required"),
+        ("gates:\n  expect_status: 200\n  min_bytes: 10\n", "content_type_any is required"),
+        (
+            "gates:\n  expect_status: 200\n  min_bytes: 0\n  content_type_any: [json]\n",
+            "0 gates nothing",
+        ),
+    ],
+)
+def test_size_and_type_gates_are_required(tmp_path, gates, expected):
+    """A soft-404 is a 200 carrying an HTML error page.
+
+    eia.gov answers a missing EIA-860M month with 55,723 bytes of HTML --
+    byte-identical across two different missing months -- where the real
+    workbook is ~14 MB. expect_status passes, the body is real bytes, and the
+    capture is recorded as a success. Only a size floor or a type check
+    notices, so neither may be left unset.
+    """
+    write_source_yaml(tmp_path, "fixture.demo.alpha", "https://example.com/api", gates=gates)
+    problems = registry.validate_registry(tmp_path)
+    assert any(expected in p for p in problems), problems
