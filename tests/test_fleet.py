@@ -7,9 +7,13 @@ import json
 import textwrap
 from pathlib import Path
 
+import wss
 from wss import fleet
 
 from .conftest import write_source_yaml
+
+
+CURRENT_PIN = f"v{wss.__version__}"
 
 
 def make_repo(
@@ -20,11 +24,14 @@ def make_repo(
     workflow_cadence: str | None = None,
     capture_cron: str = "10 22 * * 1",
     derive_cron: str = "20 0 * * 2",
-    pin: str = "v0.6.4",
+    pin: str | None = None,
     sources: int = 2,
     health: bool = True,
     swallow_plan: bool = False,
 ) -> Path:
+    # The default tracks the engine, or every version bump breaks six tests
+    # that have nothing to do with pinning.
+    pin = pin or CURRENT_PIN
     repo = root / name
     (repo / ".github" / "workflows").mkdir(parents=True)
     ids = []
@@ -138,12 +145,34 @@ def test_derive_running_faster_than_capture_is_drift(tmp_path):
 
 
 def test_pin_skew_names_the_lagging_repo_and_the_target(tmp_path):
-    make_repo(tmp_path, "wss-alpha", pin="v0.6.4")
+    make_repo(tmp_path, "wss-alpha")               # on the engine's own version
     make_repo(tmp_path, "wss-beta", pin="v0.6.2")
     skew = [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "pin_skew"]
     assert len(skew) == 1
     assert skew[0].repo == "wss-beta"
-    assert "v0.6.4" in skew[0].decision
+    assert CURRENT_PIN in skew[0].decision
+
+
+def test_a_fleet_that_agrees_but_lags_the_engine_is_still_skew(tmp_path):
+    """The whole fleet sat on v0.6.19 while the engine shipped gzip in v0.6.34.
+
+    Every repo held .csv.gz partitions its own CI could not read, and the sift
+    said nothing, because comparing repos only against each other makes
+    unanimity look like health.
+    """
+    for i in range(3):
+        make_repo(tmp_path, f"wss-r{i}", pin="v0.6.19")
+    skew = [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "pin_skew"]
+    assert len(skew) == 1                          # collapsed into one row
+    assert all(f"wss-r{i}" in skew[0].detail for i in range(3))
+    assert CURRENT_PIN in skew[0].decision
+
+
+def test_a_repo_ahead_of_an_old_sift_is_not_flagged(tmp_path):
+    """max() keeps a stale checkout of the engine from filing noise."""
+    make_repo(tmp_path, "wss-alpha", pin="v99.0.0")
+    make_repo(tmp_path, "wss-beta", pin="v99.0.0")
+    assert "pin_skew" not in kinds(fleet.scan(fleet.find_repos(tmp_path)))
 
 
 def test_auto_disabled_and_stalled_sources_each_ask_for_a_decision(tmp_path):
@@ -174,7 +203,7 @@ def test_fail_on_gates_the_exit_code(tmp_path):
     # a fleet whose worst finding is drift must not trip a --fail-on dead gate
     other = tmp_path / "only-drift"
     other.mkdir()
-    make_repo(other, "wss-alpha", pin="v0.6.4")
+    make_repo(other, "wss-alpha")
     make_repo(other, "wss-beta", pin="v0.6.2")
     _, code = fleet.run_scan(other, fail_on="dead")
     assert code == 0
@@ -267,7 +296,7 @@ def test_a_defect_every_repo_inherited_is_one_finding_not_eight(tmp_path):
 
 
 def test_pin_skew_collapses_too_but_still_names_every_repo(tmp_path):
-    make_repo(tmp_path, "wss-ahead", pin="v0.6.9")
+    make_repo(tmp_path, "wss-ahead")               # on the engine's own version
     for i in range(3):
         make_repo(tmp_path, f"wss-behind{i}", pin="v0.6.8")
     skew = [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "pin_skew"]

@@ -21,7 +21,7 @@ from pathlib import Path
 
 import yaml
 
-from . import registry
+from . import __version__, registry
 
 # dead:  capturing nothing right now -- data is being lost
 # blind: running, but nothing is watching it
@@ -113,6 +113,14 @@ def _health_rows(repo: Path) -> list[dict]:
         return []
     with path.open(newline="", encoding="utf-8") as fh:
         return list(csv.DictReader(fh))
+
+
+def _version_key(tag: str) -> tuple[int, ...]:
+    """Sortable form of a `vX.Y.Z` pin. Unparseable sorts oldest."""
+    try:
+        return tuple(int(x) for x in tag.lstrip("v").split("."))
+    except ValueError:
+        return (-1,)
 
 
 def _pin(repo: Path) -> str | None:
@@ -383,10 +391,17 @@ def scan(repos: list[Path], workflow_states: dict | None = None) -> list[Finding
 
     # Pin skew is the one thing only visible across repos.
     pins = {r.name: _pin(r) for r in repos if _pin(r)}
-    if len(set(pins.values())) > 1:
-        newest = max(set(pins.values()), key=lambda v: [int(x) for x in v.lstrip("v").split(".")])
+    # The reference is the ENGINE's own version, not merely the newest pin.
+    # Comparing repos only against each other means a UNIFORMLY stale fleet
+    # reports nothing: nine repos sat on v0.6.19 while the engine shipped
+    # gzipped partitions in v0.6.34, so every repo held .csv.gz files that its
+    # own CI could not read, and the sift was silent because they agreed.
+    # max() keeps an OLD sift from flagging repos that are ahead of it.
+    candidates = set(pins.values()) | {f"v{__version__}"}
+    if len(candidates) > 1 or len(set(pins.values())) > 1:
+        newest = max(candidates, key=_version_key)
         for repo_name, pin in sorted(pins.items()):
-            if pin != newest:
+            if _version_key(pin) < _version_key(newest):
                 found.append(Finding("drift", "pin_skew", repo_name, repo_name,
                                      f"engine {pin}, fleet is on {newest}",
                                      f"re-pin to {newest} so a fix reaches every repo"))
