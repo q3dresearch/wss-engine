@@ -115,7 +115,40 @@ def _source(backend: str) -> Source:
 
 
 def test_store_for_object_requires_bucket(tmp_path, monkeypatch):
-    monkeypatch.delenv("WSS_OBJECT_BUCKET", raising=False)
+    # Both names have to go: the bucket is read under WSS_OBJECT_BUCKET *or*
+    # Cloudflare's own R2_BUCKET_NAME, and load_env_file now walks up to an
+    # umbrella .env.local, so a real one can be present during a test run.
+    for name in ("WSS_OBJECT_BUCKET", "R2_BUCKET_NAME"):
+        monkeypatch.delenv(name, raising=False)
     assert isinstance(storage.store_for(_source("git"), tmp_path), storage.LocalGitStore)
     with pytest.raises(RuntimeError, match="WSS_OBJECT_BUCKET"):
         storage.store_for(_source("object"), tmp_path)
+
+
+def test_object_config_accepts_cloudflares_own_names(monkeypatch):
+    """Nobody should keep the same secret under two names to satisfy a client.
+
+    Cloudflare's dashboard and docs say R2_*; boto3 is an S3 client and looks
+    for AWS_*. Copying between them is how one copy goes stale.
+    """
+    for n in ("WSS_OBJECT_BUCKET", "WSS_OBJECT_ENDPOINT", "WSS_OBJECT_PREFIX",
+              "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "R2_ENDPOINT"):
+        monkeypatch.delenv(n, raising=False)
+    monkeypatch.setenv("R2_BUCKET_NAME", "q3d-bucket")
+    monkeypatch.setenv("R2_ACCOUNT_ID", "abc123")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "secret")
+    cfg = storage.object_config()
+    assert cfg["bucket"] == "q3d-bucket"
+    # the endpoint is derivable from the account id alone
+    assert cfg["endpoint_url"] == "https://abc123.r2.cloudflarestorage.com"
+    assert cfg["access_key"] == "key" and cfg["secret_key"] == "secret"
+
+
+def test_an_empty_value_does_not_claim_the_name(monkeypatch):
+    """A blank AWS_ACCESS_KEY_ID in a repo file hid a populated R2_ACCESS_KEY_ID
+    one directory up, and boto3 reported 'unable to locate credentials' with the
+    real key two lines away."""
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "   ")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "the-real-one")
+    assert storage._first_env("AWS_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID") == "the-real-one"

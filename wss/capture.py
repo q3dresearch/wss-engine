@@ -44,6 +44,9 @@ class CredentialMissing(RuntimeError):
 
 
 ENV_FILE = ".env.local"
+# How far up to look for a shared credential file. Three is enough to reach an
+# umbrella checkout from wss/<repo>/ without wandering into a home directory.
+ENV_SEARCH_PARENTS = 3
 
 
 def load_env_file(root: Path | str) -> list[str]:
@@ -53,20 +56,32 @@ def load_env_file(root: Path | str) -> list[str]:
     overridden by a stray file in a checkout. The file holds credentials and
     must never be committed — the scaffolded .gitignore excludes it.
     """
-    path = Path(root) / ENV_FILE
     loaded: list[str] = []
-    if not path.is_file():
-        return loaded
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
+    # Walk up from the repo toward an umbrella checkout. A fleet keeps one repo
+    # per source but one Cloudflare account for all of them, and copying the
+    # same secret into every repo is how one copy goes stale. Nearest wins,
+    # because the loop below refuses to overwrite a name already set.
+    here = Path(root).resolve()
+    candidates = [here, *list(here.parents)[:ENV_SEARCH_PARENTS]]
+    for directory in candidates:
+        path = directory / ENV_FILE
+        if not path.is_file():
             continue
-        name, _, value = line.removeprefix("export ").partition("=")
-        name = name.strip()
-        value = value.strip().strip('"').strip("'")
-        if name and name not in os.environ:
-            os.environ[name] = value
-            loaded.append(name)
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            name, _, value = line.removeprefix("export ").partition("=")
+            name = name.strip()
+            value = value.strip().strip('"').strip("'")
+            # An EMPTY value is not a value. Setting it would claim the name and
+            # stop a real one further up being seen -- a blank AWS_ACCESS_KEY_ID
+            # in a repo file hid a populated R2_ACCESS_KEY_ID one directory up,
+            # and boto3 reported "unable to locate credentials" with the key
+            # sitting two lines away.
+            if name and value and name not in os.environ:
+                os.environ[name] = value
+                loaded.append(name)
     return loaded
 
 

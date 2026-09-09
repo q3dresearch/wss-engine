@@ -115,13 +115,21 @@ class ObjectStore(Store):
     has no hard dependency on it; install with `pip install wss[object]`.
     """
 
-    def __init__(self, bucket: str, endpoint_url: str | None = None, prefix: str = "", client=None):
+    def __init__(self, bucket: str, endpoint_url: str | None = None, prefix: str = "",
+                 client=None, access_key: str = "", secret_key: str = ""):
         self.bucket = bucket
         self.prefix = prefix.strip("/")
         if client is None:
             import boto3  # deferred: only object-backend users need it
 
-            client = boto3.client("s3", endpoint_url=endpoint_url)
+            kw = {"endpoint_url": endpoint_url}
+            if access_key and secret_key:
+                # Passed explicitly so a key kept under R2_* works without
+                # being copied to an AWS_* name. region_name is required by
+                # the signer; R2 ignores it and "auto" is Cloudflare's own.
+                kw.update(aws_access_key_id=access_key,
+                          aws_secret_access_key=secret_key, region_name="auto")
+            client = boto3.client("s3", **kw)
         self.client = client
 
     def _key(self, rel_path: str) -> str:
@@ -143,17 +151,55 @@ class ObjectStore(Store):
         return _unpack(rel_path, raw)
 
 
+def _first_env(*names: str) -> str:
+    """First of `names` with a non-empty value. Empty counts as unset.
+
+    An empty value is worse than a missing one: `.env.local` with a blank
+    AWS_ACCESS_KEY_ID sets the name, so a fallback never fires and boto3
+    reports "unable to locate credentials" while the real key sits two lines
+    away under a different name.
+    """
+    for n in names:
+        v = os.environ.get(n, "").strip()
+        if v:
+            return v
+    return ""
+
+
+def object_config() -> dict:
+    """Bucket, endpoint and credentials, under whichever names are present.
+
+    Cloudflare's own docs and dashboard call these R2_*; boto3 is an S3 client
+    and looks for AWS_*. Neither is more correct, and asking someone to keep
+    the same secret under two names is how one of them goes stale. WSS_OBJECT_*
+    wins where set, then R2_*, then the ambient AWS chain.
+    """
+    account = _first_env("R2_ACCOUNT_ID")
+    endpoint = _first_env("WSS_OBJECT_ENDPOINT", "R2_ENDPOINT")
+    if not endpoint and account:
+        endpoint = f"https://{account}.r2.cloudflarestorage.com"
+    return {
+        "bucket": _first_env("WSS_OBJECT_BUCKET", "R2_BUCKET_NAME"),
+        "endpoint_url": endpoint or None,
+        "prefix": _first_env("WSS_OBJECT_PREFIX"),
+        "access_key": _first_env("WSS_OBJECT_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID",
+                                 "AWS_ACCESS_KEY_ID"),
+        "secret_key": _first_env("WSS_OBJECT_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY",
+                                 "AWS_SECRET_ACCESS_KEY"),
+    }
+
+
 def store_for(source, root: Path | str) -> Store:
     """Pick the backend the source declares. Object config comes from env."""
     if source.storage == "git":
         return LocalGitStore(root)
-    bucket = os.environ.get("WSS_OBJECT_BUCKET", "")
-    if not bucket:
+    cfg = object_config()
+    if not cfg["bucket"]:
         raise RuntimeError(
-            f"{source.source_id} declares storage: object but WSS_OBJECT_BUCKET is not set"
+            f"{source.source_id} declares storage: object but no bucket is set. "
+            f"Set WSS_OBJECT_BUCKET, or R2_BUCKET_NAME if you already keep "
+            f"Cloudflare's own names."
         )
-    return ObjectStore(
-        bucket=bucket,
-        endpoint_url=os.environ.get("WSS_OBJECT_ENDPOINT") or None,
-        prefix=os.environ.get("WSS_OBJECT_PREFIX", ""),
-    )
+    return ObjectStore(bucket=cfg["bucket"], endpoint_url=cfg["endpoint_url"],
+                       prefix=cfg["prefix"], access_key=cfg["access_key"],
+                       secret_key=cfg["secret_key"])
