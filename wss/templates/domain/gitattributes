@@ -3,3 +3,16 @@
 *.json text eol=lf
 *.yml text eol=lf
 *.md text eol=lf
+
+# The manifest is APPEND-ONLY, and two writers append to the same month file
+# whenever a scheduled run and a local run overlap. Git cannot merge adjacent
+# added lines, so `git pull --rebase` in the commit step hit a content conflict
+# and burned all five retry attempts -- wss-drug-scarcity's monthly shard died
+# this way with the capture itself succeeding.
+#
+# `union` concatenates both sides instead of conflicting, which is exactly
+# right for an append-only log: both captures genuinely happened and both rows
+# belong. `wss derive` reads the manifest by content, not by order, so
+# interleaved rows change nothing downstream.
+manifest/**/*.csv merge=union
+manifest/**/*.csv.gz -merge -text

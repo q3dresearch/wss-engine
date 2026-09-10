@@ -65,7 +65,16 @@ jobs:
           for i in 1 2 3 4 5; do
             if git push; then exit 0; fi
             sleep $((i * 5))
-            git pull --rebase
+            # `git pull --rebase` leaves a CONFLICTED TREE when it fails, and
+            # the next push then fails for a different reason than the first.
+            # Abort so each attempt starts clean; `merge=union` in
+            # .gitattributes resolves the append-only manifest automatically,
+            # and anything it cannot resolve now fails loudly on attempt one
+            # instead of being disguised as five push failures.
+            if ! git pull --rebase; then
+              git rebase --abort || true
+              echo "rebase conflict on attempt $i -- not a push race" >&2
+            fi
           done
           echo "push failed after 5 attempts" >&2
           exit 1
