@@ -228,7 +228,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p = sub.add_parser("derive", help="rebuild observation tables from the raw archive")
-    p.add_argument("--since", help="only rebuild partitions from this month on, e.g. 2026-08")
+    p.add_argument("--since", help="skip captures FETCHED before this month, e.g. 2026-08. Filters by "
+                        "fetched_at, not by partition: one recent capture of a backfill still "
+                        "writes every month it covers, so this saves nothing on a repo that "
+                        "holds one")
     p.add_argument(
         "--parsers",
         action="append",

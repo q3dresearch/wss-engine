@@ -135,7 +135,12 @@ def derive(
     """Rebuild derived/observations/<YYYY-MM>.csv from raw + manifest.
 
     Deterministic: sorted rows, canonical formatting — a rebuild over the
-    same archive is byte-identical. `since` limits the rebuild to partitions
+    same archive is byte-identical. `since` skips manifest rows CAPTURED before
+    that month -- it filters by `fetched_at`, not by partition. A single recent
+    capture whose observations span 2001-2026 still writes 300 partitions, so
+    `--since` saves nothing on a repo carrying a backfill. Measured on
+    wss-drug-scarcity: full and `--since 2026-08` both take 4m20s and both write
+    300 partitions. It limits the rebuild to partitions
     from that month on (a full rebuild also prunes stale partitions).
     """
     root = Path(root)
