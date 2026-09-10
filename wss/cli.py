@@ -29,7 +29,7 @@ def _err(msg: str) -> None:
 
 
 def cmd_explore(args: argparse.Namespace, root: Path) -> int:
-    return explore.explore(args.url, source_id=args.source_id)
+    return explore.explore(args.url, source_id=args.source_id, head=args.head)
 
 
 def cmd_init(args: argparse.Namespace, root: Path) -> int:
@@ -174,6 +174,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("explore", help="case a URL before writing a registry entry (writes nothing)")
+    p.add_argument("--head", type=int, default=0, metavar="N",
+                   help="print the first N lines of the payload verbatim. The only way "
+                        "to read a source that answers a runner but not your laptop. "
+                        "Text only, capped at 64 KB -- never use it on a source that "
+                        "carries personal data, because a workflow log is as public as "
+                        "its repo")
     p.add_argument("url")
     p.add_argument(
         "--source-id",

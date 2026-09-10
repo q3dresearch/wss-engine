@@ -38,6 +38,10 @@ JSON_BLOB_RE = re.compile(r"(__NEXT_DATA__|__NUXT__|__INITIAL_STATE__|window\.__
 
 FEED_TYPES = ("application/rss+xml", "application/atom+xml", "application/json")
 MAX_LEADS = 12
+# --head prints the payload verbatim, and a probe workflow's log is as public as
+# the repo it runs in. Bounded so a stray --head 100000 cannot page a whole
+# database into a public log, and never used on a source declaring personal data.
+MAX_HEAD_BYTES = 64 * 1024
 
 
 @dataclass
@@ -58,6 +62,10 @@ class Report:
     metric_candidates: list[str] = field(default_factory=list)
     record_count: int | None = None
     must_contain: str = ""
+    columns: list[str] = field(default_factory=list)
+    column_count: int = 0
+    header_row: int = 0
+    head_lines: list[str] = field(default_factory=list)
 
 
 class _HTMLScan(HTMLParser):
@@ -339,10 +347,33 @@ def _suggest_entry(report: Report, source_id: str) -> str:
     return "\n".join(lines)
 
 
+def _csv_header(lines: list[str]) -> tuple[int, list[str]]:
+    """(row index, column names). The header is NOT always row 1.
+
+    SPP's active-studies CSV opens with `Last Updated On, 9/9/2026,` -- a title
+    banner three fields wide -- and the real header sits below it. Taking row 1
+    on faith reports a date stamp as the column list, which is worse than
+    reporting nothing because it looks like an answer.
+
+    Chosen by field count: among the first few non-empty rows, the widest one is
+    the header. A banner is narrow by construction; a header is not.
+    """
+    best: tuple[int, list[str]] = (0, [])
+    for i, line in enumerate(lines[:6]):
+        if not line.strip():
+            continue
+        cols = [c.strip().strip('"') for c in line.split(",")]
+        cols = [c for c in cols if c]
+        if len(cols) > len(best[1]):
+            best = (i, cols)
+    return best
+
+
 def explore(
     url: str,
     source_id: str = "publisher.domain.series",
     log: Callable[[str], None] = print,
+    head: int = 0,
 ) -> int:
     """Case one URL. Returns 0 if it looks capturable, 1 if blocked."""
     contact = contact_from_env()
@@ -392,16 +423,38 @@ def explore(
     elif report.kind == "html":
         _classify_html(res.body, url, report)
     elif report.kind == "csv":
-        first = res.body[:2000].decode("utf-8", errors="replace").splitlines()
-        if first:
-            cols = [c.strip().strip('"') for c in first[0].split(",")][:12]
+        # 8 KB, not 2 KB: a header row 60 columns wide does not fit in 2 KB once
+        # the titles are long, and a truncated header is how a column goes
+        # unseen. The whole column list is what step 1 of the research sequence
+        # asks for -- a grep over CAISO's labels missed WITHDRAWNDATE and nearly
+        # justified capturing something already archived.
+        lines = res.body[:8192].decode("utf-8", errors="replace").splitlines()
+        idx, cols = _csv_header(lines)
+        if cols:
+            report.column_count = len(cols)
+            report.header_row = idx + 1
             report.entity_candidates = _rank(cols, ID_HINTS)[:5]
             report.date_candidates = _rank(cols, DATE_HINTS)[:5]
             report.metric_candidates = [c for c in cols if c not in report.entity_candidates][:8]
-            report.must_contain = cols[0] if cols else ""
-            report.leads.append(f"CSV header: {', '.join(cols)}")
+            report.must_contain = cols[0]
+            report.columns = cols
+            if idx:
+                report.leads.append(
+                    f"the header is on row {idx + 1}, not row 1 — row 1 is "
+                    f"{lines[0][:60].strip()!r}, a title banner. A reader that "
+                    f"assumes row 1 gets column names that are really data")
     elif report.kind == "pdf":
         report.warnings.append("PDF — archive it and detect silent revisions; parsing to observations is a separate problem")
+
+    if head:
+        # Only for text. A runner-only source cannot be read any other way --
+        # opsportal.spp.org answers a GitHub runner and TCP-times-out from a
+        # laptop, so "read the whole column list" is otherwise impossible.
+        if report.kind in ("csv", "json", "xml", "html", "unknown", "other"):
+            text = res.body[:MAX_HEAD_BYTES].decode("utf-8", errors="replace")
+            report.head_lines = text.splitlines()[:head]
+        else:
+            report.warnings.append(f"--head skipped: {report.kind} is not text")
 
     # Conditional requests decide whether daily polling is cheap for both sides.
     if res.etag or res.last_modified:
@@ -446,6 +499,18 @@ def _print(report: Report, source_id: str, log: Callable[[str], None]) -> None:
         log(f"  entity_id  ← {', '.join(report.entity_candidates) or '(none obvious — look at the raw payload)'}")
         log(f"  observed_at ← {', '.join(report.date_candidates) or '(none — capture time will be used)'}")
         log(f"  metric/value ← {', '.join(report.metric_candidates) or '(none numeric — may be an archive-only source)'}")
+
+    if report.columns:
+        section(f"COLUMNS  ({report.column_count}, from row {report.header_row})")
+        # Every one of them, numbered. Truncating this list is how a column
+        # goes unseen, which is the one thing step 1 exists to prevent.
+        for i, col in enumerate(report.columns, 1):
+            log(f"  {i:>3}. {col}")
+
+    if report.head_lines:
+        section(f"PAYLOAD HEAD  ({len(report.head_lines)} line(s), verbatim)")
+        for line in report.head_lines:
+            log(f"  {line}")
 
     if report.leads:
         section("LEADS")

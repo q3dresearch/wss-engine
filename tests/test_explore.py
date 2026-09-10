@@ -10,8 +10,12 @@ from wss import cli, explore
 from tests.fixture_server import FixtureServer
 
 
-def run(server: FixtureServer, path: str, capsys, source_id: str = "demo.web.thing") -> str:
-    assert cli.main(["explore", server.url + path, "--source-id", source_id]) == 0
+def run(server: FixtureServer, path: str, capsys, source_id: str = "demo.web.thing",
+        head: int = 0) -> str:
+    argv = ["explore", server.url + path, "--source-id", source_id]
+    if head:
+        argv += ["--head", str(head)]
+    assert cli.main(argv) == 0
     return capsys.readouterr().out
 
 
@@ -152,7 +156,10 @@ def test_csv_header_becomes_field_candidates(capsys):
         out = run(server, "/holdings.csv", capsys)
 
     assert "treated as csv" in out
-    assert "CSV header: Ticker, Name, As Of, Weight (%)" in out
+    # Every column, numbered, from the row they were actually found on.
+    assert "COLUMNS  (4, from row 1)" in out
+    for i, col in enumerate(("Ticker", "Name", "As Of", "Weight (%)"), 1):
+        assert f"{i}. {col}" in out
     assert "content_type_any: [csv]" in out
 
 
@@ -182,3 +189,49 @@ def test_starter_entry_still_produced_on_200():
     assert "source_id: fixture.demo.alpha" in out
     assert "min_bytes: 100000" in out   # half of 240k, rounded down to the 100k step
     assert "content_type_any: [json]" in out
+
+
+@pytest.mark.usefixtures("contact_env")
+def test_a_title_banner_is_not_the_header(capsys):
+    """SPP's active-studies CSV opens with a date stamp, not column names.
+
+    `Last Updated On, 9/9/2026,` is three fields wide and sits above the real
+    header. Reading row 1 on faith reported the date stamp AS the column list,
+    which is worse than reporting nothing because it looks like an answer.
+    """
+    body = ("Last Updated On, 9/9/2026, \n"
+            "Request Number,Customer,County,State,Capacity MW,Status,Queue Date\n"
+            "GEN-2024-001,Acme Wind,Kay,OK,200,Active,2024-03-01\n")
+    with FixtureServer() as server:
+        server.allow_all_robots()
+        server.set("/active.csv", body, content_type="text/csv")
+        out = run(server, "/active.csv", capsys)
+
+    assert "COLUMNS  (7, from row 2)" in out
+    assert "1. Request Number" in out
+    assert "7. Queue Date" in out
+    assert "the header is on row 2, not row 1" in out
+    assert "Last Updated On" in out          # named, so the reader can check
+
+
+@pytest.mark.usefixtures("contact_env")
+def test_head_prints_the_payload_verbatim(capsys):
+    """The only way to read a source that answers a runner but not a laptop."""
+    body = "a,b\n1,2\n3,4\n5,6\n"
+    with FixtureServer() as server:
+        server.allow_all_robots()
+        server.set("/x.csv", body, content_type="text/csv")
+        out = run(server, "/x.csv", capsys, head=3)
+
+    assert "PAYLOAD HEAD  (3 line(s), verbatim)" in out
+    assert "  a,b" in out and "  1,2" in out and "  3,4" in out
+    assert "  5,6" not in out                # bounded by N
+
+
+@pytest.mark.usefixtures("contact_env")
+def test_head_is_off_by_default(capsys):
+    with FixtureServer() as server:
+        server.allow_all_robots()
+        server.set("/x.csv", "a,b\n1,2\n", content_type="text/csv")
+        out = run(server, "/x.csv", capsys)
+    assert "PAYLOAD HEAD" not in out
