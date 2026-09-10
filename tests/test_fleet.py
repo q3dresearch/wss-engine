@@ -566,3 +566,67 @@ def test_a_health_table_from_an_older_engine_still_scans(tmp_path):
         w.writeheader()
         w.writerows(rows)
     assert "throttled" not in kinds(fleet.scan(fleet.find_repos(tmp_path)))
+
+
+# --- a workflow that runs and fails every time -----------------------------
+# Invisible until v0.6.42: `state` stays "active", so the disabled-check
+# skipped it, and every file-based check kept passing on outputs from the last
+# run that worked. wss-drug-scarcity's monthly shard sat red for three days
+# while three new sources were added to it.
+
+def test_a_workflow_failing_every_run_is_dead_not_silent(tmp_path):
+    make_repo(tmp_path, "wss-alpha")
+    states = {"wss-alpha": {"capture-weekly.yml": {
+        "state": "active", "recent": ["failure", "failure", "success"]}}}
+    found = {f.kind: f for f in fleet.scan(fleet.find_repos(tmp_path), states)}
+    assert "workflow_failing" in found
+    f = found["workflow_failing"]
+    assert f.severity == "dead"            # a capture that cannot fire loses data now
+    assert "2 run(s) failed" in f.detail
+    assert "still 'active'" in f.detail    # the reason it was invisible
+    assert "FAILING JOB" in f.decision
+
+
+def test_one_failure_is_a_flake(tmp_path):
+    make_repo(tmp_path, "wss-alpha")
+    states = {"wss-alpha": {"capture-weekly.yml": {
+        "state": "active", "recent": ["failure", "success", "success"]}}}
+    assert "workflow_failing" not in kinds(fleet.scan(fleet.find_repos(tmp_path), states))
+
+
+def test_a_failing_non_capture_workflow_is_blind_not_dead(tmp_path):
+    """Nobody is watching is bad later; nothing is collecting is bad now."""
+    make_repo(tmp_path, "wss-alpha")
+    states = {"wss-alpha": {"health.yml": {
+        "state": "active", "recent": ["failure", "failure"]}}}
+    found = {f.kind: f for f in fleet.scan(fleet.find_repos(tmp_path), states)}
+    assert found["workflow_failing"].severity == "blind"
+
+
+def test_a_run_still_in_progress_does_not_break_the_streak(tmp_path):
+    """`null` conclusions are dropped, not counted as a pass.
+
+    A queued run sitting in front of two real failures would otherwise reset
+    the streak to zero and hide exactly the case this check exists for.
+    """
+    make_repo(tmp_path, "wss-alpha")
+    states = {"wss-alpha": {"capture-weekly.yml": {
+        "state": "active", "recent": [None, "failure", "failure"]}}}
+    assert "workflow_failing" in kinds(fleet.scan(fleet.find_repos(tmp_path), states))
+
+
+def test_the_plain_string_form_still_works(tmp_path):
+    """An older collector sends {name: state}. It must not crash."""
+    make_repo(tmp_path, "wss-alpha")
+    states = {"wss-alpha": {"capture-weekly.yml": "disabled_inactivity"}}
+    found = kinds(fleet.scan(fleet.find_repos(tmp_path), states))
+    assert "workflow_disabled" in found and "workflow_failing" not in found
+
+
+def test_failing_AND_disabled_reports_both(tmp_path):
+    """They are different problems with different fixes."""
+    make_repo(tmp_path, "wss-alpha")
+    states = {"wss-alpha": {"capture-weekly.yml": {
+        "state": "disabled_inactivity", "recent": ["failure", "failure"]}}}
+    found = kinds(fleet.scan(fleet.find_repos(tmp_path), states))
+    assert {"workflow_failing", "workflow_disabled"} <= found

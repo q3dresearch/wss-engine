@@ -30,6 +30,10 @@ from . import __version__, registry
 SEVERITY = ("dead", "blind", "rot", "drift")
 # Three refusals in a row is a pattern; one is an evening.
 THROTTLE_DAYS = 3
+# Two consecutive failed runs. One is a flake -- a runner hiccup, a publisher
+# blip. Two in a row on a scheduled workflow is a broken workflow, and waiting
+# for a third costs another cadence period of data.
+FAILING_RUNS = 2
 
 STALE_FACTOR = 2.0        # staleness beyond 2x the promised interval is a stall
 # Majors still shipping a Node 20 entrypoint. GitHub force-runs them on Node 24
@@ -359,13 +363,45 @@ def scan_workflow_states(states: dict) -> list[Finding]:
     what changed, and a wss repo that stops for sixty days has lost sixty days
     that cannot be re-fetched.
 
-    `states` is {repo: {workflow_name: state}}, supplied by the caller because
-    it needs a GitHub token and everything else here is a pure function of
-    files on disk.
+    THE LOUDER FAILURE THIS ALSO CATCHES. A workflow that runs and FAILS every
+    time was invisible here until v0.6.42. `state` stays "active", so the loop
+    below skipped it, and every file-based check kept passing because they read
+    outputs from the last run that worked. wss-drug-scarcity's monthly shard sat
+    red from 2026-09-07 while three new sources were added to it, and the same
+    shape hid a fleet-wide reader break and nine stale engine pins in the same
+    week. Green-looking silence is the fleet's characteristic failure.
+
+    `states` is {repo: {workflow_name: state}} where state is either the plain
+    string GitHub reports, or {"state": ..., "recent": [conclusion, ...]} with
+    conclusions newest-first. The plain-string form is still accepted so an
+    older collector keeps working -- it simply cannot report failure runs.
     """
     found: list[Finding] = []
     for repo, workflows in sorted(states.items()):
-        for name, state in sorted(workflows.items()):
+        for name, value in sorted(workflows.items()):
+            if isinstance(value, dict):
+                state = value.get("state", "active")
+                recent = [c for c in (value.get("recent") or []) if c]
+            else:
+                state, recent = value, []
+
+            # Consecutive failures, newest-first. `None` (still running) and
+            # "cancelled" are not evidence either way and were filtered above.
+            streak = 0
+            for conclusion in recent:
+                if conclusion == "failure":
+                    streak += 1
+                else:
+                    break
+            if streak >= FAILING_RUNS:
+                capturing = "capture" in name.lower()
+                found.append(Finding(
+                    "dead" if capturing else "blind", "workflow_failing", repo, name,
+                    f"last {streak} run(s) failed, and the workflow is still {state!r}",
+                    "read the FAILING JOB's log, not the run summary -- a capture job "
+                    "can go green while the commit job dies, which is how this sat red "
+                    "for three days looking like a push race"))
+
             if state == "active":
                 continue
             # A capture that cannot fire is losing data now; the rest mean
@@ -413,6 +449,7 @@ def scan(repos: list[Path], workflow_states: dict | None = None) -> list[Finding
         ("no_timeout", "workflows with no timeout-minutes"),
         ("pin_skew", "repos behind the fleet's engine"),
         ("partition_unchecked", "repos whose derived/ was not in the checkout"),
+        ("workflow_failing", "workflows failing every run while still 'active'"),
     ):
         group = [f for f in found if f.kind == kind]
         if len(group) <= 1:
