@@ -368,6 +368,38 @@ class Fetcher:
         raise FetchError(last_reason)
 
 
+def follow_url_from(body: bytes, path: str, stable_url: str) -> str:
+    """The real address, pulled out of a discovery response.
+
+    Some publishers mint a new URL for every version. gov.uk does: the sponsor
+    register sits at /media/<objectid>/SP_..._-_<date>.csv and BOTH parts move
+    on every upload, the id being an ObjectID whose first four bytes are the
+    upload time. No date token can construct that, so the registry points at
+    the stable address and says where inside it the real one lives.
+
+    Refuses anything that is not an absolute http(s) URL. Following an address
+    out of a response is a request someone else chose for us, so the scheme is
+    checked rather than assumed.
+    """
+    import json as _json
+    try:
+        doc = _json.loads(body)
+    except Exception as exc:
+        raise FetchError(f"url_from_not_json:{type(exc).__name__}")
+    node = doc
+    for part in re.finditer(r"([A-Za-z_][\w-]*)|\[(\d+)\]", path):
+        name, index = part.group(1), part.group(2)
+        try:
+            node = node[name] if name is not None else node[int(index)]
+        except (KeyError, IndexError, TypeError):
+            raise FetchError(f"url_from_missing:{path}")
+    if not isinstance(node, str):
+        raise FetchError(f"url_from_not_a_string:{type(node).__name__}")
+    if not node.startswith(("http://", "https://")):
+        raise FetchError("url_from_not_absolute")
+    return node
+
+
 def _empty_row(source_id: str, url: str, fetched_at: str) -> dict:
     return {col: "" for col in manifest.COLUMNS} | {
         "source_id": source_id,
@@ -425,13 +457,39 @@ def capture_source(
         # only a couple. The first that answers wins; if none does, the last
         # error is what gets reported.
         candidates = endpoint.resolve()
+        if endpoint.url_from:
+            # Two fetches: one to learn the address, one to take the data. The
+            # manifest keeps the STABLE url as this endpoint's identity, so a
+            # publisher minting a new address every day still produces one
+            # continuous history rather than a new series per upload.
+            try:
+                disco = fetcher.fetch(endpoint, extra_headers=credentials,
+                                      url=endpoint.url)
+                if disco.status != 200:
+                    raise FetchError(f"url_from_discovery_status_{disco.status}")
+                candidates = [follow_url_from(disco.body, endpoint.url_from, endpoint.url)]
+            except FetchError as exc:
+                row |= {"outcome": "error", "reason": exc.reason,
+                        "warnings": ";".join(warnings)}
+                manifest.append_row(root, row)
+                rows.append(row)
+                continue
+            warnings.append(f"discovered={candidates[0].rsplit('/', 1)[-1][:60]}")
+            # A conditional request is meaningless here: the previous capture
+            # came from a DIFFERENT url, so its etag says nothing about this
+            # one, and a server that matched it anyway would hand back a 304
+            # for a file we have never seen.
+            prev_etag, prev_lm = "", ""
+        else:
+            prev_etag = (prev or {}).get("etag", "")
+            prev_lm = (prev or {}).get("last_modified", "")
         try:
             for i, candidate in enumerate(candidates):
                 try:
                     res = fetcher.fetch(
                         endpoint,
-                        etag=(prev or {}).get("etag", ""),
-                        last_modified=(prev or {}).get("last_modified", ""),
+                        etag=prev_etag,
+                        last_modified=prev_lm,
                         extra_headers=credentials,
                         url=candidate,
                     )

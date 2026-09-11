@@ -48,7 +48,7 @@ GATE_KEYS = (
     "max_shrink_pct",
 )
 ENDPOINT_KEYS = ("url", "delay_seconds", "timeout_seconds", "method", "body",
-                 "encoding", "lookback")
+                 "encoding", "lookback", "url_from")
 
 # Publishers that name the date in the filename and keep only the last few.
 # Azure ships ServiceTags_Public_<Monday>.json and retains about two weeks:
@@ -112,6 +112,18 @@ class Endpoint:
     # publishers post on a schedule that slips, and the current period is often
     # not written until part-way through it.
     lookback: int = 0
+    # A dotted path into a JSON response that holds the REAL url, for
+    # publishers that mint a new address for every version. gov.uk does: the
+    # sponsor register lives at /media/<objectid>/SP_..._-_<date>.csv and BOTH
+    # the id and the date change on every upload -- the id is an ObjectID whose
+    # first four bytes are the upload time -- so no date token can construct
+    # it. `url` then names the STABLE address (the content API), `url_from`
+    # says where inside it the real one sits, and the manifest keeps `url` so
+    # the history stays one continuous series.
+    #
+    #   url: "https://www.gov.uk/api/content/government/publications/..."
+    #   url_from: "details.attachments[0].url"
+    url_from: str = ""
 
     def resolve(self, now=None) -> list[str]:
         """Concrete URLs to try, newest first. A plain URL resolves to itself."""
@@ -282,6 +294,26 @@ def _validate_scheme(auth: dict, problems: list[str], where: str) -> None:
         problems.append(f"{where}: scheme has no effect without bearer_env")
 
 
+URL_FROM_PATH = re.compile(r"^[A-Za-z_][\w-]*(\[\d+\]|\.[A-Za-z_][\w-]*)*$")
+
+
+def _validate_url_from(value: object, url: str, problems: list[str], where: str) -> None:
+    """A dotted path, and only where it can actually be followed."""
+    if not isinstance(value, str) or not value.strip():
+        problems.append(f"{where}: url_from must be a non-empty dotted path")
+        return
+    if not URL_FROM_PATH.match(value.strip()):
+        problems.append(
+            f"{where}: url_from {value!r} is not a dotted path. Use "
+            f"`details.attachments[0].url` -- names, dots and [n] only")
+    if URL_TOKEN.search(url or ""):
+        # Both mechanisms answer "the address moves", and combining them means
+        # a date token on the DISCOVERY url, which is never what is meant.
+        problems.append(
+            f"{where}: url_from cannot be combined with a date token in url. "
+            f"Point url at the stable address instead")
+
+
 def _validate_url_template(url: str, lookback: object, problems: list[str], where: str) -> None:
     """A date token and a lookback only make sense together."""
     tokens = URL_TOKEN.findall(url or "")
@@ -360,10 +392,13 @@ def _validate_endpoints(endpoints: object, problems: list[str], where: str) -> l
             problems.append(f"{ep_where}: encoding only applies to a POST body")
         lookback = ep.get("lookback", 0)
         _validate_url_template(url, lookback, problems, ep_where)
+        if "url_from" in ep:
+            _validate_url_from(ep.get("url_from"), url, problems, ep_where)
         parsed.append(Endpoint(url=url, delay_seconds=float(delay), timeout_seconds=float(timeout),
                                method=method, body=body, encoding=encoding,
                                lookback=int(lookback) if isinstance(lookback, int)
-                               and not isinstance(lookback, bool) else 0))
+                               and not isinstance(lookback, bool) else 0,
+                               url_from=str(ep.get("url_from", "") or "").strip()))
     return parsed
 
 
