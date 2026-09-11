@@ -159,3 +159,25 @@ def test_scaffold_wires_object_storage_secrets(tmp_path):
         for var in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY",
                     "R2_BUCKET_NAME", "WSS_OBJECT_PREFIX"):
             assert var in text, f"{name} does not pass {var}"
+
+
+def test_scaffold_installs_the_object_extra(tmp_path):
+    """boto3 is optional, and a repo finds that out on a runner.
+
+    `storage: object` is not knowable at scaffold time -- the registry does not
+    exist yet -- and a repo that flips to it later fails with
+    ModuleNotFoundError: No module named 'boto3' on the runner and nowhere
+    else. wss-drug-scarcity did exactly that. The extra is small; always take
+    it.
+    """
+    from wss.init import scaffold
+    scaffold(tmp_path, owner="q3dresearch")
+    for path in list((tmp_path / ".github" / "workflows").glob("*.yml")) + \
+                [tmp_path / "requirements.txt"]:
+        text = path.read_text()
+        if "wss-engine.git@" not in text:
+            continue
+        assert "wss[object] @ git+" in text, f"{path.name} installs wss without [object]"
+        # NOT a blanket "{{" check: GitHub Actions' own ${{ }} is everywhere.
+        for token in ("{{ENGINE_VERSION}}", "{{OWNER}}", "{{DOMAIN}}"):
+            assert token not in text, f"{path.name} has an unsubstituted {token}"
