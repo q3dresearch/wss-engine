@@ -126,6 +126,32 @@ def clear_parsers(keep_builtins: bool = True) -> None:
         _reset_builtin_parsers()
 
 
+def _withhold_records(path, rows, withheld, keep_prefixes, root, log):
+    """Archive the full partition, then leave only aggregates in git.
+
+    Order matters and is not negotiable: the complete file goes to object
+    storage and is READ BACK AND COUNTED before a single row is removed from
+    the git copy. Trimming first would turn a licence control into a deletion.
+    """
+    from . import storage
+    store = storage.store_for(withheld[0], root)
+    key = f"derived/observations/{path.name}"
+    blob = path.read_bytes()
+    store.write(key, blob)
+    if store.read(key) != blob:
+        raise DeriveError(
+            f"{key} did not survive the round trip to object storage; refusing "
+            f"to withhold rows that are not safely archived")
+    ids = {s.source_id for s in withheld}
+    kept = [r for r in rows
+            if r["source_id"] not in ids or r["entity_id"].startswith(keep_prefixes)]
+    dropped = len(rows) - len(kept)
+    write_csv(path, OBS_COLUMNS, kept)
+    log(f"withheld {dropped} record row(s) from {path.name}; "
+        f"{len(kept)} aggregate row(s) committed, full copy in object storage")
+    return kept
+
+
 def derive(
     root: Path | str,
     since: str | None = None,
@@ -222,12 +248,20 @@ def derive(
     for row in obs_rows:
         by_month.setdefault(row["observed_at"][:7], []).append(row)
 
+    # Sources that may not publish their records at all. See PUBLISH_MODES:
+    # this is a licence control, not a size one, so the FULL partition is
+    # archived to object storage first and only then trimmed for git.
+    withheld = [s for s in sources if s.publish == "aggregates"]
+    keep_prefixes = tuple(pfx for s in withheld for pfx in s.aggregate_prefixes)
+
     out_dir = root / "derived" / "observations"
     written: list[str] = []
     for month in sorted(by_month):
         rows = sorted(by_month[month], key=lambda r: tuple(r[c] for c in OBS_COLUMNS))
         path = out_dir / f"{month}.csv.gz"
         write_csv(path, OBS_COLUMNS, rows)
+        if withheld:
+            rows = _withhold_records(path, rows, withheld, keep_prefixes, root, log)
         written.append(path.name)
         # The plain .csv from before the changeover. Leaving it would mean two
         # copies of one month, and any reader globbing "*.csv" would quietly

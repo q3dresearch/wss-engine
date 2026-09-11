@@ -29,6 +29,15 @@ STORAGE_BACKENDS = ("git", "object")
 #   on_change      no  -- a slow register re-stating 30,483 rows a run is 35%
 #                        of the partition saying nothing new
 RESTATE_MODES = ("every_capture", "on_change")
+# What may be COMMITTED from derived/. `all` is the default and the right
+# answer almost always. `aggregates` exists because some publishers licence
+# their data for publication only in non-downloadable form -- UNEP-WCMC's WDPA
+# terms forbid sub-licensing "including within Derivative Works" and permit
+# publishing only where "the Data are not downloadable". Under `aggregates` the
+# per-entity records go to object storage and only the cross-entity counts and
+# totals reach git. It is a LICENCE control, never a size one: `wss derive`
+# still produces every row.
+PUBLISH_MODES = ("all", "aggregates")
 
 GATE_KEYS = (
     "expect_status",
@@ -65,7 +74,8 @@ REQUIRED_KEYS = (
     "endpoints",
     "gates",
 )
-OPTIONAL_KEYS = ("notes", "tags", "auth", "dedupe_ignore", "restate")
+OPTIONAL_KEYS = ("notes", "tags", "auth", "dedupe_ignore", "restate",
+                 "publish", "aggregate_prefixes")
 
 AUTH_KEYS = ("bearer_env", "scheme", "headers")
 ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -159,6 +169,14 @@ class Source:
     endpoints: tuple[Endpoint, ...]
     # every_capture (default) | on_change -- see RESTATE_MODES
     restate: str = "every_capture"
+    # all (default) | aggregates -- see PUBLISH_MODES. `aggregates` requires
+    # storage: object, because the records it withholds need somewhere to go.
+    publish: str = "all"
+    # Entity-id prefixes that are AGGREGATES and may be committed. Naming the
+    # publishable half rather than the withheld half is deliberate: a parser
+    # that starts emitting a new entity type gets it WITHHELD until someone
+    # classifies it, instead of silently publishing it.
+    aggregate_prefixes: tuple[str, ...] = ()
     gates: dict = field(default_factory=dict)
     auth: dict = field(default_factory=dict)
     notes: str = ""
@@ -386,6 +404,19 @@ def validate_entry(data: object, path: Path) -> tuple[Source | None, list[str]]:
     check_enum("storage", STORAGE_BACKENDS)
     if "restate" in data:
         check_enum("restate", RESTATE_MODES)
+    if "publish" in data:
+        check_enum("publish", PUBLISH_MODES)
+        # Withholding records with nowhere to put them would destroy them.
+        if data.get("publish") == "aggregates" and not data.get("aggregate_prefixes"):
+            problems.append(
+                f"{where}: publish 'aggregates' needs aggregate_prefixes -- the "
+                f"entity-id prefixes that may be committed. Without it every row "
+                f"is withheld, which is not what anyone means")
+        if data.get("publish") == "aggregates" and data.get("storage") != "object":
+            problems.append(
+                f"{where}: publish 'aggregates' requires storage: object -- the "
+                f"per-entity records it withholds from git have to go somewhere, "
+                f"and dropping them would not be a licence control but a deletion")
 
     for key in ("schema_id", "publisher", "licence"):
         if not isinstance(data[key], str) or not data[key].strip():
@@ -460,6 +491,8 @@ def validate_entry(data: object, path: Path) -> tuple[Source | None, list[str]]:
             personal_data=data["personal_data"],
             storage=data["storage"],
             restate=data.get("restate", "every_capture"),
+            publish=data.get("publish", "all"),
+            aggregate_prefixes=tuple(data.get("aggregate_prefixes") or ()),
             endpoints=tuple(endpoints),
             gates=dict(data["gates"]),
             auth=dict(data.get("auth") or {}),

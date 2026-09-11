@@ -167,3 +167,80 @@ def test_on_change_does_not_re_materialise_an_unchanged_snapshot(tmp_path, monke
     assert rows_for("every_capture") == 3      # the restatement is kept
     derive.clear_parsers()
     assert rows_for("on_change") == 1          # only the capture that changed
+
+
+def test_publish_aggregates_withholds_records_but_archives_them_first(tmp_path, monkeypatch):
+    """A licence control, not a deletion: the full partition must survive.
+
+    UNEP-WCMC permit publishing WDPA material only where "the Data are not
+    downloadable" and forbid sub-licensing it "including within Derivative
+    Works". `publish: aggregates` keeps the cross-entity counts in git and
+    sends the per-entity records to object storage -- but ONLY after the full
+    file is written there and read back, because trimming first would turn a
+    licence control into data loss.
+    """
+    from wss import derive as D, registry, storage
+
+    written = {}
+
+    class FakeStore(storage.Store):
+        def write(self, rel_path, data): written[rel_path] = data
+        def exists(self, rel_path): return rel_path in written
+        def read(self, rel_path): return written[rel_path]
+
+    monkeypatch.setattr(storage, "store_for", lambda source, root: FakeStore())
+
+    src = registry.Source(
+        source_id="p.q.r", status="active", cadence="monthly", schema_id="x.v1",
+        publisher="p", publisher_tier="first_party", destroys_own_history=True,
+        licence="see terms", personal_data="none", storage="object",
+        endpoints=(), publish="aggregates", aggregate_prefixes=("feed:", "country:"))
+
+    rows = [
+        {"source_id": "p.q.r", "entity_id": "pa:1", "metric": "area", "value": "1"},
+        {"source_id": "p.q.r", "entity_id": "pa:2", "metric": "area", "value": "2"},
+        {"source_id": "p.q.r", "entity_id": "feed:all", "metric": "n", "value": "2"},
+        {"source_id": "p.q.r", "entity_id": "country:X", "metric": "n", "value": "2"},
+        # a different source is untouched by another source's publish mode
+        {"source_id": "other.s.t", "entity_id": "pa:9", "metric": "area", "value": "9"},
+    ]
+    path = tmp_path / "2026-09.csv.gz"
+    from wss.csvio import write_csv, read_csv
+    cols = ["source_id", "entity_id", "metric", "value"]
+    monkeypatch.setattr(D, "OBS_COLUMNS", cols)
+    write_csv(path, cols, rows)
+
+    kept = D._withhold_records(path, rows, [src], src.aggregate_prefixes, tmp_path,
+                               lambda *_: None)
+
+    ids = {r["entity_id"] for r in kept}
+    assert ids == {"feed:all", "country:X", "pa:9"}, ids   # other source survives
+    assert {r["entity_id"] for r in read_csv(path)} == ids  # and it is on disk
+    # the archived copy is the COMPLETE one, written before any trimming
+    archived = written["derived/observations/2026-09.csv.gz"]
+    import gzip, io, csv as _csv
+    full = list(_csv.DictReader(io.StringIO(gzip.decompress(archived).decode())))
+    assert len(full) == len(rows) == 5
+    assert "pa:1" in {r["entity_id"] for r in full}
+
+
+def test_publish_aggregates_refuses_without_object_storage():
+    """Withholding rows with nowhere to put them is deletion, not licensing."""
+    from wss import registry
+    bad = {"source_id": "p.q.r", "status": "active", "cadence": "monthly",
+           "schema_id": "x.v1", "publisher": "p", "publisher_tier": "first_party",
+           "destroys_own_history": True, "licence": "x", "personal_data": "none",
+           "storage": "git", "publish": "aggregates",
+           "aggregate_prefixes": ["feed:"],
+           "endpoints": [{"url": "https://e.test/x"}],
+           "gates": {"min_bytes": 1, "content_type_any": ["json"]}}
+    from pathlib import Path
+    _, problems = registry.validate_entry(bad, Path("t.yml"))
+    assert any("storage: object" in p for p in problems), problems
+
+    # ...and it refuses the other half-configuration too: aggregates with no
+    # prefixes would withhold every row, which nobody means.
+    bad2 = dict(bad, storage="object")
+    bad2.pop("aggregate_prefixes")
+    _, problems2 = registry.validate_entry(bad2, Path("t.yml"))
+    assert any("aggregate_prefixes" in p for p in problems2), problems2
