@@ -46,6 +46,12 @@ NODE20_ACTIONS = {
 # The graveyard marker: a paused entry that says why is a decision, not drift.
 PAUSE_DOCUMENTED = re.compile(r"PAUSED ON PURPOSE|RETIRED ON PURPOSE", re.I)
 GATE_ROT_RATE = 0.50      # half the fetches quarantined = the page has moved on
+# ...over at least this many fetches. A rate needs its denominator:
+# ansm.shortages.fr was reported as ROT at "50% quarantined" on ONE failure out
+# of two fetches three minutes apart, and the page was fine. A monthly source
+# makes ~1 fetch per 28 days and so can never clear this bar, which is correct
+# -- one bad fetch out of one is an incident, not a trend.
+GATE_ROT_MIN_ATTEMPTS = 6
 # GitHub refuses a file over 100 MB outright and warns from 50. A derived
 # partition is append-only within its month, so the moment to say something is
 # while there is still room to act.
@@ -322,9 +328,17 @@ def scan_repo(repo: Path) -> list[Finding]:
                                  f"{stale:.0f}h since last success, promised every {expected:.0f}h",
                                  "check whether the publisher moved the endpoint"))
         rate = _float(row.get("gate_fail_rate_28d"))
-        if rate is not None and rate >= GATE_ROT_RATE:
+        attempts = _float(row.get("attempts_28d"))
+        # A rate needs its denominator. ansm.shortages.fr was reported as ROT at
+        # "50% of fetches quarantined over 28d" on the strength of ONE failure
+        # out of two fetches three minutes apart, and the page was fine. The
+        # loudest severity in this scan crying wolf is worse than no scan,
+        # because it teaches the reader to skim the section.
+        if rate is not None and rate >= GATE_ROT_RATE and (
+                attempts is None or attempts >= GATE_ROT_MIN_ATTEMPTS):
+            enough = f" of {attempts:.0f} fetches" if attempts else " of fetches"
             found.append(Finding("rot", "gate_rotting", name, sid,
-                                 f"{rate:.0%} of fetches quarantined over 28d",
+                                 f"{rate:.0%}{enough} quarantined over 28d",
                                  "the page is drifting under its gates -- re-case it before it dies"))
 
     # A pause is drift only when nobody wrote down why. wss-drug-scarcity's

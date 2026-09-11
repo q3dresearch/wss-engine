@@ -36,6 +36,8 @@ HEALTH_COLUMNS = [
     "expected_interval_h",
     "staleness_h",
     "gate_fail_rate_28d",
+    "attempts_28d",  # the DENOMINATOR under gate_fail_rate_28d, without which
+                     # "50% quarantined" can mean one failure out of two
     "status",
 ]
 
@@ -139,6 +141,12 @@ def compute_health(root: Path | str, sources: list[Source], now: datetime | None
                 "expected_interval_h": CADENCE_HOURS[source.cadence],
                 "staleness_h": staleness,
                 "gate_fail_rate_28d": fail_rate,
+                # Ship the denominator beside the rate. It was computed here
+                # and discarded, so `wss fleet-scan` reported "50% of fetches
+                # quarantined over 28d" on a source with two fetches -- the
+                # fleet's own counts-need-denominators rule, broken by the tool
+                # that enforces everything else.
+                "attempts_28d": attempts_28d,
                 "status": source.status,
             }
         )

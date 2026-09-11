@@ -630,3 +630,43 @@ def test_failing_AND_disabled_reports_both(tmp_path):
         "state": "disabled_inactivity", "recent": ["failure", "failure"]}}}
     found = kinds(fleet.scan(fleet.find_repos(tmp_path), states))
     assert {"workflow_failing", "workflow_disabled"} <= found
+
+
+def _set_health(repo, **cols):
+    """Rewrite the fixture's health.csv with extra/overridden columns."""
+    import csv as _csv
+    path = repo / "health" / "health.csv"
+    rows = list(_csv.DictReader(path.open()))
+    fields = list(rows[0].keys()) + [k for k in cols if k not in rows[0]]
+    for r in rows:
+        r.update({k: str(v) for k, v in cols.items()})
+    with path.open("w", newline="") as fh:
+        w = _csv.DictWriter(fh, fieldnames=fields)
+        w.writeheader()
+        w.writerows(rows)
+
+
+def test_gate_rotting_needs_a_denominator(tmp_path):
+    """A 50% quarantine rate over two fetches is an incident, not a trend.
+
+    ansm.shortages.fr was reported ROT at "50% of fetches quarantined over 28d"
+    on ONE failure out of two fetches three minutes apart, at the same byte
+    length, on a page that was fine. The loudest severity in the scan crying
+    wolf is worse than no scan: it teaches the reader to skim the section.
+    """
+    repo = make_repo(tmp_path, "wss-alpha")
+    _set_health(repo, gate_fail_rate_28d="0.5", attempts_28d="2")
+    assert "gate_rotting" not in kinds(fleet.scan(fleet.find_repos(tmp_path)))
+
+    # Same rate, enough fetches to mean something.
+    _set_health(repo, gate_fail_rate_28d="0.5",
+                attempts_28d=str(fleet.GATE_ROT_MIN_ATTEMPTS))
+    rot = [f for f in fleet.scan(fleet.find_repos(tmp_path)) if f.kind == "gate_rotting"]
+    assert rot, "a real rate over enough fetches must still report"
+    # ...and it names the denominator, so the reader never has to ask.
+    assert all(f"of {fleet.GATE_ROT_MIN_ATTEMPTS} fetches" in f.detail for f in rot)
+
+    # A health table written before attempts_28d existed still reports, rather
+    # than silently going quiet on every older repo in the fleet.
+    _set_health(repo, gate_fail_rate_28d="0.9", attempts_28d="")
+    assert "gate_rotting" in kinds(fleet.scan(fleet.find_repos(tmp_path)))
