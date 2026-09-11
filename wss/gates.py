@@ -38,7 +38,15 @@ def run_gates(
     allowed_types = gates.get("content_type_any")
     if allowed_types:
         ct = (content_type or "").split(";")[0].strip().lower()
-        if not any(token.lower() in ct for token in allowed_types):
+        # Some publishers send no Content-Type at all. CloudFront serves the
+        # WDPA monthly zip with Content-Length and Last-Modified and nothing
+        # else, so `ct` is "" and every token misses -- which quarantined a
+        # perfectly good 23 MB archive. `none` is the way to say "this
+        # publisher omits it and that is expected", so the gate stays required
+        # and the omission stays declared rather than silently tolerated.
+        matched = any(token.lower() in ct for token in allowed_types) if ct else \
+            any(token.strip().lower() == "none" for token in allowed_types)
+        if not matched:
             return GateResult(False, f"content_type_{ct or 'missing'}")
 
     text: str | None = None

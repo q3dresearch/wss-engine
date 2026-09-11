@@ -201,7 +201,9 @@ def _validate_gates(gates: object, problems: list[str], where: str) -> None:
     if gates.get("content_type_any") is None:
         problems.append(
             f"{where}: gates.content_type_any is required -- without it, an HTML "
-            f"error page served in place of the real payload passes as data")
+            f"error page served in place of the real payload passes as data. "
+            f"If the publisher sends no Content-Type at all -- CloudFront does "
+            f"this for static files -- use the token `none`")
     for key in ("content_type_any", "must_contain", "must_not_contain"):
         val = gates.get(key)
         if val is not None and not (

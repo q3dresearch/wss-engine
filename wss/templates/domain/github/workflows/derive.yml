@@ -43,6 +43,18 @@ jobs:
       - name: Install engine
         run: pip install "$ENGINE_SPEC"
       - name: Rebuild derived/ from the raw archive
+        env:
+          # Harmless when every source declares `storage: git` -- the variables
+          # are simply empty. REQUIRED the moment one declares `storage: object`,
+          # because object_config() then resolves to an entirely empty config and
+          # the job cannot write a byte. wss-drug-scarcity ran red for three days
+          # before anyone looked, so the wiring ships by default rather than
+          # being remembered at the point it is needed.
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          WSS_OBJECT_PREFIX: ${{ secrets.WSS_OBJECT_PREFIX }}
         run: wss derive
       - name: Byte-identical or red (pull requests)
         if: github.event_name == 'pull_request'

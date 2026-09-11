@@ -142,3 +142,20 @@ def test_capture_carries_a_contact_in_every_job(scaffolded):
     # capture, so the variable has to sit at workflow scope to reach both.
     doc = yaml.safe_load((scaffolded / ".github" / "workflows" / "capture-weekly.yml").read_text())
     assert "WSS_CONTACT" in (doc.get("env") or {})
+
+
+def test_scaffold_wires_object_storage_secrets(tmp_path):
+    """A repo that later declares `storage: object` must not need hand-wiring.
+
+    `wss validate` passes with storage: object and says nothing about
+    credentials, so the failure surfaces only on a runner — which is how
+    wss-drug-scarcity stayed red for three days. The secrets are harmless when
+    every source is storage: git (the variables resolve empty), so they ship.
+    """
+    from wss.init import scaffold
+    scaffold(tmp_path, owner="q3dresearch")
+    for name in ("capture-weekly.yml", "derive.yml"):
+        text = (tmp_path / ".github" / "workflows" / name).read_text()
+        for var in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY",
+                    "R2_BUCKET_NAME", "WSS_OBJECT_PREFIX"):
+            assert var in text, f"{name} does not pass {var}"

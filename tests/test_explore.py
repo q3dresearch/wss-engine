@@ -235,3 +235,21 @@ def test_head_is_off_by_default(capsys):
         server.set("/x.csv", "a,b\n1,2\n", content_type="text/csv")
         out = run(server, "/x.csv", capsys)
     assert "PAYLOAD HEAD" not in out
+
+
+def test_missing_content_type_suggests_a_gate_that_can_pass():
+    """A publisher with no Content-Type must get `none`, not `other`.
+
+    `content_type_any: [other]` validates -- it is a non-empty list of
+    non-empty strings -- and then fails every capture with
+    content_type_missing, which is the worst kind of suggestion: one that
+    passes review and breaks in production.
+    """
+    from wss import explore as ex
+    report = ex.Report(url="https://example.test/x.zip")
+    report.kind = "none"
+    report.size = 23_820_193
+    report.status = 200
+    text = ex._suggest_entry(report, "publisher.domain.series")
+    assert "content_type_any: [none]" in text
+    assert "[other]" not in text

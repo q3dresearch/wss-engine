@@ -414,7 +414,11 @@ def explore(
     elif "pdf" in ct:
         report.kind = "pdf"
     else:
-        report.kind = ct or "other"
+        # No Content-Type at all is its own case, not "other". CloudFront
+        # serves the WDPA monthly zip with Content-Length and Last-Modified
+        # and nothing else, and suggesting `content_type_any: [other]` there
+        # produced an entry that validated and could never pass its own gate.
+        report.kind = ct or "none"
 
     if report.kind == "json":
         _classify_json(res.body, report)
@@ -450,7 +454,7 @@ def explore(
         # Only for text. A runner-only source cannot be read any other way --
         # opsportal.spp.org answers a GitHub runner and TCP-times-out from a
         # laptop, so "read the whole column list" is otherwise impossible.
-        if report.kind in ("csv", "json", "xml", "html", "unknown", "other"):
+        if report.kind in ("csv", "json", "xml", "html", "unknown", "other", "none"):
             text = res.body[:MAX_HEAD_BYTES].decode("utf-8", errors="replace")
             report.head_lines = text.splitlines()[:head]
         else:

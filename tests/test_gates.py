@@ -65,3 +65,29 @@ def test_max_shrink_pct():
 def test_defaults_expect_200():
     assert run_gates(status_code=200, content_type="", body=b"x", gates={}).ok
     assert not run_gates(status_code=404, content_type="", body=b"x", gates={}).ok
+
+
+def test_missing_content_type_is_declarable():
+    """A publisher that sends no Content-Type must still be capturable.
+
+    CloudFront serves the WDPA monthly zip with Content-Length and
+    Last-Modified and nothing else. Before `none` was accepted there was no
+    way to declare that: content_type_any is required and must be a non-empty
+    list of non-empty strings, so every possible value failed.
+    """
+    body = b"PK\x03\x04" + b"\0" * 100
+    # Without the declaration it is still a failure -- the gate is not bypassed.
+    strict = {"content_type_any": ["zip"]}
+    result = run_gates(status_code=200, content_type="", body=body, gates=strict)
+    assert not result.ok and result.reason == "content_type_missing"
+
+    # With it, the missing header is accepted.
+    lenient = {"content_type_any": ["none"]}
+    assert run_gates(status_code=200, content_type="", body=body, gates=lenient).ok
+
+    # And `none` does NOT become a wildcard: a real content-type still has to
+    # match one of the other tokens.
+    assert not run_gates(status_code=200, content_type="text/html",
+                         body=body, gates=lenient).ok
+    assert run_gates(status_code=200, content_type="application/zip", body=body,
+                     gates={"content_type_any": ["none", "zip"]}).ok
