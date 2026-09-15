@@ -6,3 +6,6 @@ build/
 .venv/
 .pytest_cache/
 sandbox/out/
+
+# stray page scrapes from screening; they belong in a scratchpad, not the engine
+*.html

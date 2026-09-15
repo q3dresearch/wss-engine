@@ -20,7 +20,7 @@ from pathlib import Path
 
 from . import (
     __version__, capture, datapage, derive, explore, fleet, health, init,
-    registry, sources,
+    registry, schema, sources,
 )
 
 
@@ -143,6 +143,17 @@ def cmd_sources(args: argparse.Namespace, root: Path) -> int:
     return 0
 
 
+def cmd_schema(args: argparse.Namespace, root: Path) -> int:
+    path, doc = schema.write(root)
+    if not path:
+        print("no derived observations yet — run `wss derive` first")
+        return 1
+    o = doc["observations"]
+    print(f"{path.name} and schema/shape.json written — {o['rows']:,} row(s), "
+          f"{len(o['series'])} series, {len(doc['metrics'])} metric(s)")
+    return 0
+
+
 def cmd_datapage(args: argparse.Namespace, root: Path) -> int:
     path = datapage.write(root, args.repo_url or "")
     print(f"{path} written — enable Pages (deploy from main, /docs) to publish it")
@@ -217,6 +228,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("sources", help="write SOURCES.md — every source URL, licence and last capture")
 
+    sub.add_parser("schema", help="write SCHEMA.md and schema/shape.json — the "
+                                  "data's shape, so nobody has to unpack a .gz "
+                                  "to discover it")
+
     p = sub.add_parser(
         "datapage",
         help="write docs/index.html with schema.org Dataset markup, so the "
@@ -286,6 +301,7 @@ def main(argv: list[str] | None = None) -> int:
         "fleet-scan": cmd_fleet_scan,
         "sources": cmd_sources,
         "datapage": cmd_datapage,
+        "schema": cmd_schema,
     }
     try:
         return handlers[args.cmd](args, root)
