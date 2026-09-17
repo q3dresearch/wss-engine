@@ -74,7 +74,7 @@ REQUIRED_KEYS = (
     "endpoints",
     "gates",
 )
-OPTIONAL_KEYS = ("notes", "tags", "auth", "dedupe_ignore", "restate",
+OPTIONAL_KEYS = ("notes", "tags", "auth", "dedupe_ignore", "restate", "raw_codec",
                  "publish", "aggregate_prefixes")
 
 AUTH_KEYS = ("bearer_env", "scheme", "headers")
@@ -195,6 +195,10 @@ class Source:
     # Regexes stripped from the body *only* to decide changed vs unchanged.
     # The stored bytes and content_sha256 stay verbatim.
     dedupe_ignore: tuple[str, ...] = ()
+    # A lossless re-encoding applied to raw before it is stored. It must
+    # round-trip byte-exactly and capture proves that on every fetch, so `raw`
+    # still means what the publisher sent. See wss/codecs.py.
+    raw_codec: str = ""
     path: Path | None = None
 
 
@@ -437,6 +441,14 @@ def validate_entry(data: object, path: Path) -> tuple[Source | None, list[str]]:
     check_enum("publisher_tier", PUBLISHER_TIERS)
     check_enum("personal_data", PERSONAL_DATA)
     check_enum("storage", STORAGE_BACKENDS)
+
+    rc = data.get("raw_codec")
+    if rc is not None and rc != "":
+        from wss import codecs
+        if not isinstance(rc, str) or codecs.get(rc) is None:
+            problems.append(
+                f"{where}: raw_codec {rc!r} is not a known codec. Known: "
+                f"{', '.join(codecs.names()) or '(none)'}")
     if "restate" in data:
         check_enum("restate", RESTATE_MODES)
     if "publish" in data:

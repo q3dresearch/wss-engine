@@ -529,7 +529,7 @@ def capture_source(
 
         sha = hashlib.sha256(res.body).hexdigest()
         content_type = (res.content_type or "").split(";")[0].strip().lower()
-        ext = storage.ext_for(res.content_type)
+        ext = storage.ext_for(res.content_type, source.raw_codec)
         prev_length = int(prev["content_length"]) if prev and prev.get("content_length") else None
         gate = run_gates(
             status_code=res.status,
@@ -557,6 +557,23 @@ def capture_source(
             row |= {"outcome": "unchanged", "raw_ref": prev["raw_ref"]}
         else:
             ref = storage.raw_path(source.source_id, fetched_dt, sha, ext)
+            # THE CODEC MUST PROVE ITSELF ON EVERY FETCH, NOT ONCE IN A TEST.
+            # A codec's whole claim is that unpack(pack(x)) == x, so the cheap
+            # check is to do exactly that and compare. If a publisher changes
+            # its formatting mid-year the codec quietly stops matching, and the
+            # capture that notices must keep the original bytes rather than a
+            # re-encoding that no longer reproduces them. Failure is a warning
+            # and a fallback, never a dropped capture -- a missed window cannot
+            # be re-fetched, a suboptimal encoding can be migrated later.
+            if source.raw_codec:
+                try:
+                    if storage._unpack(ref, storage._pack(ref, res.body)) != res.body:
+                        raise ValueError("round trip did not reproduce the bytes")
+                except Exception as exc:
+                    warnings.append(f"raw_codec:{source.raw_codec} fell back ({exc})")
+                    ext = storage.ext_for(res.content_type)
+                    ref = storage.raw_path(source.source_id, fetched_dt, sha, ext)
+                    row["warnings"] = ";".join(warnings)
             if not store.exists(ref):
                 store.write(ref, res.body)
             row |= {"outcome": "changed" if prev is not None else "first_capture", "raw_ref": ref}

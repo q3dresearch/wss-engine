@@ -39,14 +39,40 @@ RAW_EXT_BY_TYPE = {
 COMPRESS = True
 
 
-def ext_for(content_type: str) -> str:
+def ext_for(content_type: str, raw_codec: str = "") -> str:
     ct = (content_type or "").split(";")[0].strip().lower()
     ext = RAW_EXT_BY_TYPE.get(ct, "bin")
+    if raw_codec:
+        # A CODEC REPLACES GZIP, IT DOES NOT STACK WITH IT, and that is the
+        # whole point rather than a detail. Gzip is what destroys git's delta:
+        # two gzip streams of near-identical input share no bytes, so a monthly
+        # roster that barely changes still pays for a full copy. Measured on
+        # catalog.data.gov over twelve captures of one segment, across all 112:
+        # xml.gz 102.2 MB/yr, packed-then-gzipped 92.0 MB/yr, packed and left
+        # plain 19.0 MB/yr. Compressing the packed form gives back almost the
+        # entire saving.
+        return f"{ext}.{raw_codec.replace('.', '-')}"
     return f"{ext}.gz" if COMPRESS else ext
+
+
+def codec_of(rel_path: str) -> str:
+    """The codec named by a raw path's extension, or "" for none."""
+    from wss import codecs
+    for name in codecs.names():
+        if rel_path.endswith("." + name.replace(".", "-")):
+            return name
+    return ""
 
 
 def _pack(rel_path: str, data: bytes) -> bytes:
     """Compress only for keys that say they are compressed."""
+    name = codec_of(rel_path)
+    if name:
+        from wss import codecs
+        packed = codecs.get(name)[0](data)
+        if packed is None:
+            raise ValueError(f"codec {name} refused a payload it was asked to store")
+        return packed
     if not rel_path.endswith(".gz"):
         return data
     # mtime=0 so identical content always yields identical bytes -- otherwise
@@ -56,6 +82,10 @@ def _pack(rel_path: str, data: bytes) -> bytes:
 
 
 def _unpack(rel_path: str, data: bytes) -> bytes:
+    name = codec_of(rel_path)
+    if name:
+        from wss import codecs
+        return codecs.get(name)[1](data)
     return gzip.decompress(data) if rel_path.endswith(".gz") else data
 
 
