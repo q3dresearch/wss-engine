@@ -151,8 +151,25 @@ class ObjectStore(Store):
         self.prefix = prefix.strip("/")
         if client is None:
             import boto3  # deferred: only object-backend users need it
+            from botocore.config import Config
 
-            kw = {"endpoint_url": endpoint_url}
+            # A SHORT CONNECT TIMEOUT IS THE ONLY DEFENCE AGAINST A BLACKHOLED
+            # ADDRESS FAMILY. R2 publishes both A and AAAA; a host with a
+            # configured-but-dead IPv6 path picks the AAAA, sits in SYN-SENT and
+            # gets no RST to fail it fast. botocore's default connect_timeout is
+            # 60s, so every object costs a minute before create_connection moves
+            # on to the next getaddrinfo result -- which turned a 221-object
+            # derive into a hang. 5s keeps the failover, drops the stall.
+            # Deliberately NOT forcing IPv4: that would break genuinely
+            # IPv6-only hosts. Override with WSS_S3_CONNECT_TIMEOUT.
+            kw = {
+                "endpoint_url": endpoint_url,
+                "config": Config(
+                    connect_timeout=float(os.environ.get("WSS_S3_CONNECT_TIMEOUT", "5")),
+                    read_timeout=float(os.environ.get("WSS_S3_READ_TIMEOUT", "60")),
+                    retries={"max_attempts": 5, "mode": "standard"},
+                ),
+            }
             if access_key and secret_key:
                 # Passed explicitly so a key kept under R2_* works without
                 # being copied to an AWS_* name. region_name is required by
