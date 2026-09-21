@@ -8,7 +8,10 @@ abstract: >-
 authors:
   - name: "{{OWNER}}"
     website: "https://github.com/{{OWNER}}"
-license: CC-BY-4.0
+# NO `license:` FIELD BY DEFAULT, ON PURPOSE. This template hard-coded
+# CC-BY-4.0 until 2026-09-22, so every scaffolded repo claimed a grant nobody
+# had checked. Add one only once you can name what the publisher grants, and
+# write the reasoning into LICENSE-DATA. Absent means unspecified.
 keywords:
   - git-scraping
   - open-data

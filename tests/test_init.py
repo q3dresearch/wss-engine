@@ -43,8 +43,27 @@ def test_two_separate_licence_files(scaffolded):
     code = (scaffolded / "LICENSE").read_text()
     data = (scaffolded / "LICENSE-DATA").read_text()
     assert "MIT License" in code and "someone" in code
-    assert "Attribution 4.0 International" in data
-    assert "CC-BY-4.0" in (scaffolded / "CITATION.cff").read_text()
+    assert data.strip(), "LICENSE-DATA must exist and say something"
+
+
+def test_the_scaffold_claims_no_data_licence(scaffolded):
+    """A new repo must not assert a grant nobody has checked.
+
+    This template shipped the verbatim CC-BY-4.0 text and a hard-coded
+    `license: CC-BY-4.0` until 2026-09-22, so every repo scaffolded from it
+    claimed CC-BY-4.0 over data nobody had looked at. An audit of twelve
+    repositories that day found the claim wrong in most: WHO grants
+    CC BY-NC-SA 3.0 IGO, UNEP-WCMC forbids sub-licensing, several sources are
+    US federal works with no copyright to grant, and one repo asserted MIT over
+    a commercial index provider's documents. The claim was not drift; it was
+    the scaffold.
+    """
+    data = (scaffolded / "LICENSE-DATA").read_text()
+    cff = (scaffolded / "CITATION.cff").read_text()
+    assert "Attribution 4.0 International" not in data
+    assert "FILL THIS IN" in data
+    # a commented-out mention is fine; an actual field is not
+    assert not any(l.startswith("license:") for l in cff.splitlines())
 
 
 def test_workflows_pin_the_generating_engine_version(scaffolded):
