@@ -92,6 +92,30 @@ def test_missing_fields_are_omitted_not_guessed(tmp_path):
     assert "identifier" not in ld          # no CITATION.cff, so no DOI
     assert "creator" not in ld             # rather than an invented author
     assert "temporalCoverage" not in ld    # no manifest rows yet
+    assert "license" not in ld             # NOT a CC-BY-4.0 default
+
+
+def test_absent_licence_is_never_defaulted(tmp_path):
+    """A repo removes `license:` precisely to make no claim -- honour that.
+
+    This fell back to "CC-BY-4.0" whenever CITATION.cff declared no licence, and
+    emitted it as schema.org JSON-LD, which dataset search engines read. Nine
+    repos had the field deliberately removed because their upstream terms do not
+    permit relicensing -- WHO is CC BY-NC-SA, UNEP-WCMC forbids sub-licensing,
+    US federal work has no copyright to grant at all -- and the default put the
+    claim straight back, invisibly.
+    """
+    cff = "\n".join(l for l in CFF.splitlines() if not l.startswith("license:"))
+    ld = _ld(datapage.build(_repo(tmp_path, cff), "https://github.com/x/y"))
+    assert "license" not in ld
+    assert "CC-BY-4.0" not in json.dumps(ld)
+
+
+def test_declared_licence_is_passed_through_unchanged(tmp_path):
+    """A non-CC-BY licence must survive, not be normalised to the house one."""
+    cff = CFF.replace("license: CC-BY-4.0", "license: CC-BY-NC-SA-3.0-IGO")
+    ld = _ld(datapage.build(_repo(tmp_path, cff), "https://github.com/x/y"))
+    assert ld["license"] == "CC-BY-NC-SA-3.0-IGO"
 
 
 def test_only_active_sources_are_listed(tmp_path):

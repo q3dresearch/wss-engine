@@ -120,7 +120,13 @@ def build(root: Path | str, repo_url: str = "") -> str:
         f"history. Each capture stores the bytes as served, with a manifest "
         f"row recording the URL, fetch time and SHA-256."
     )
-    licence = cff.get("license") or "CC-BY-4.0"
+    # NO DEFAULT LICENCE. This used to fall back to "CC-BY-4.0" when
+    # CITATION.cff declared none, which silently asserted a grant the
+    # publisher may never have made -- and it did so in schema.org JSON-LD,
+    # which dataset search engines consume. A repo whose upstream terms do
+    # not permit relicensing removes the field precisely so that no claim is
+    # made; substituting one defeats that. Absent now means unspecified.
+    licence = cff.get("license") or ""
     doi = cff.get("doi") or ""
     repo_url = repo_url or f"https://github.com/{root.name}"
 
@@ -130,7 +136,6 @@ def build(root: Path | str, repo_url: str = "") -> str:
         "name": name,
         "description": description,
         "url": repo_url,
-        "license": licence,
         "isAccessibleForFree": True,
         "keywords": list(cff.get("keywords") or []),
         "creator": _creators(cff),
@@ -140,6 +145,8 @@ def build(root: Path | str, repo_url: str = "") -> str:
             "contentUrl": f"{repo_url.rstrip('/')}/tree/main/data",
         }],
     }
+    if licence:
+        ld["license"] = licence
     if doi:
         ld["identifier"] = doi if doi.startswith("http") else f"https://doi.org/{doi}"
     if first and last:
