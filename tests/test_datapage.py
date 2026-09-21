@@ -178,3 +178,17 @@ def test_figures_are_published_beside_the_page(tmp_path):
     (charts / "no-meta.svg").unlink()
     datapage.write(root, repo_url="https://example.com/r")
     assert not (path.parent / "charts" / "no-meta.svg").exists()
+
+
+def test_licence_sentence_is_never_left_dangling(tmp_path):
+    """Removing the licence must not leave "offered under ;" on a public page."""
+    cff = "\n".join(l for l in CFF.splitlines() if not l.startswith("license:"))
+    page = datapage.build(_repo(tmp_path, cff), "https://github.com/x/y")
+    assert "offered under ;" not in page
+    assert "under ;" not in page
+    assert "offers no onward licence" in page
+
+
+def test_licence_sentence_names_a_declared_licence(tmp_path):
+    page = datapage.build(_repo(tmp_path), "https://github.com/x/y")
+    assert "offered under CC-BY-4.0." in page
