@@ -29,6 +29,15 @@ STORAGE_BACKENDS = ("git", "object")
 #   on_change      no  -- a slow register re-stating 30,483 rows a run is 35%
 #                        of the partition saying nothing new
 RESTATE_MODES = ("every_capture", "on_change")
+# Re-serialise the body into a stable form BEFORE deciding changed vs unchanged.
+# `dedupe_ignore` strips substrings, which cannot survive a publisher that
+# reorders keys. WHO's GHO does exactly that: between 2026-09-07 and 2026-09-22
+# it moved `TimeDim` two keys to the left in every row and regenerated every
+# surrogate `Id`, so 377 of 384 captured pages changed at the byte level while
+# 378 of them were identical as data. Left alone that is 97 MB a month to
+# preserve ~1.5 MB of movement. Canonical form is used ONLY for the comparison;
+# the bytes written and the content_sha256 recorded stay verbatim.
+DEDUPE_CANON = ("json",)
 # What may be COMMITTED from derived/. `all` is the default and the right
 # answer almost always. `aggregates` exists because some publishers licence
 # their data for publication only in non-downloadable form -- UNEP-WCMC's WDPA
@@ -74,8 +83,8 @@ REQUIRED_KEYS = (
     "endpoints",
     "gates",
 )
-OPTIONAL_KEYS = ("notes", "tags", "auth", "dedupe_ignore", "restate", "raw_codec",
-                 "publish", "aggregate_prefixes")
+OPTIONAL_KEYS = ("notes", "tags", "auth", "dedupe_ignore", "dedupe_canon",
+                 "restate", "raw_codec", "publish", "aggregate_prefixes")
 
 AUTH_KEYS = ("bearer_env", "scheme", "headers")
 ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -195,6 +204,9 @@ class Source:
     # Regexes stripped from the body *only* to decide changed vs unchanged.
     # The stored bytes and content_sha256 stay verbatim.
     dedupe_ignore: tuple[str, ...] = ()
+    # Canonical form applied before dedupe_ignore when comparing two bodies.
+    # See DEDUPE_CANON. Affects the comparison only, never what is stored.
+    dedupe_canon: str = ""
     # A lossless re-encoding applied to raw before it is stored. It must
     # round-trip byte-exactly and capture proves that on every fetch, so `raw`
     # still means what the publisher sent. See wss/codecs.py.
@@ -449,6 +461,8 @@ def validate_entry(data: object, path: Path) -> tuple[Source | None, list[str]]:
             problems.append(
                 f"{where}: raw_codec {rc!r} is not a known codec. Known: "
                 f"{', '.join(codecs.names()) or '(none)'}")
+    if data.get("dedupe_canon"):
+        check_enum("dedupe_canon", DEDUPE_CANON)
     if "restate" in data:
         check_enum("restate", RESTATE_MODES)
     if "publish" in data:
@@ -545,6 +559,7 @@ def validate_entry(data: object, path: Path) -> tuple[Source | None, list[str]]:
             auth=dict(data.get("auth") or {}),
             notes=str(data.get("notes") or "").strip(),
             dedupe_ignore=tuple(data.get("dedupe_ignore") or ()),
+            dedupe_canon=str(data.get("dedupe_canon") or ""),
             path=path,
         ),
         [],

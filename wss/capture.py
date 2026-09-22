@@ -796,18 +796,41 @@ def _preview(body: bytes, limit: int = 1200) -> str:
         return body[:limit].decode("utf-8", errors="replace")
 
 
-def _dedupe_key(body: bytes, patterns: tuple[str, ...]) -> str:
-    """Hash of the body with volatile markup removed.
+def _canonical(body: bytes, canon: str) -> str:
+    """The body re-serialised into a form that does not move on its own.
+
+    Stripping substrings cannot survive a publisher that REORDERS keys, and
+    reordering is common: a serialiser upgrade or a different node in a pool is
+    enough. WHO's GHO moved `TimeDim` two positions left in every row between
+    two captures three weeks apart, changing every byte and no value.
+
+    Falls back to the raw text if the body does not parse, so a truncated or
+    error response can never be mistaken for an unchanged one.
+    """
+    if canon == "json":
+        try:
+            return json.dumps(json.loads(body), sort_keys=True, separators=(",", ":"))
+        except (ValueError, UnicodeDecodeError):
+            pass
+    return body.decode("utf-8", "replace")
+
+
+def _dedupe_key(body: bytes, patterns: tuple[str, ...], canon: str = "") -> str:
+    """Hash of the body in canonical form with volatile markup removed.
 
     Some publishers stamp a fresh random id into every render — Drupal emits
     `js-view-dom-id-<hash>` on each request — so identical data produces a
     different sha every time. Left alone, dedupe never fires: storage grows
     without bound and `outcome: changed` stops meaning anything.
 
-    Stripping happens *only* here. The bytes written to the archive and the
+    Canonicalising runs first, so a `dedupe_ignore` pattern is written against
+    the canonical text: under `dedupe_canon: json` keys are sorted, so GHO's
+    surrogate is always `"Id":<digits>,` wherever it sat in the response.
+
+    Both steps happen *only* here. The bytes written to the archive and the
     content_sha256 recorded against them are always the untouched response.
     """
-    text = body.decode("utf-8", "replace")
+    text = _canonical(body, canon)
     for pat in patterns:
         text = re.sub(pat, "", text)
     return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
@@ -817,12 +840,12 @@ def _same_content(source, store, prev, body: bytes, sha: str) -> bool:
     """Did the payload really not change, ignoring declared volatile markup?"""
     if prev.get("content_sha256") == sha:
         return True
-    if not source.dedupe_ignore or not prev.get("raw_ref"):
+    if not (source.dedupe_ignore or source.dedupe_canon) or not prev.get("raw_ref"):
         return False
     try:
         before = store.read(prev["raw_ref"])
     except Exception:
         return False
-    return (_dedupe_key(before, source.dedupe_ignore)
-            == _dedupe_key(body, source.dedupe_ignore))
+    return (_dedupe_key(before, source.dedupe_ignore, source.dedupe_canon)
+            == _dedupe_key(body, source.dedupe_ignore, source.dedupe_canon))
 

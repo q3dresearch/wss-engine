@@ -213,3 +213,23 @@ def test_month_end_steps_whole_months():
     e = registry.Endpoint(url="https://x/Q-{month_end:%m%d%Y}.xlsx", lookback=2)
     assert e.resolve(datetime.date(2026, 9, 9)) == [
         "https://x/Q-09302026.xlsx", "https://x/Q-08312026.xlsx", "https://x/Q-07312026.xlsx"]
+
+
+def test_dedupe_canon_must_name_a_known_form(tmp_path):
+    """A typo silently disables dedupe, so an unknown form fails validation."""
+    path = write_source_yaml(tmp_path, "fixture.demo.alpha", "https://example.com/api")
+    path.write_text(path.read_text() + "\ndedupe_canon: jsonl\n")
+    assert any("dedupe_canon" in p for p in registry.validate_registry(tmp_path))
+
+
+def test_dedupe_canon_json_is_accepted_and_loads(tmp_path):
+    path = write_source_yaml(tmp_path, "fixture.demo.alpha", "https://example.com/api")
+    path.write_text(path.read_text() + "\ndedupe_canon: json\n")
+    assert registry.validate_registry(tmp_path) == []
+    assert registry.load_registry(tmp_path)[0].dedupe_canon == "json"
+
+
+def test_dedupe_canon_defaults_to_off(tmp_path):
+    """Existing sources must keep byte-exact comparison unless they opt in."""
+    write_source_yaml(tmp_path, "fixture.demo.alpha", "https://example.com/api")
+    assert registry.load_registry(tmp_path)[0].dedupe_canon == ""
