@@ -16,10 +16,25 @@ from pathlib import Path
 import yaml
 
 # Weekly is the floor and monthly the default: sample from how long a state
-# persists, not from how often the source republishes. Nothing this fleet
-# captures has ever been decided by a sub-weekly reading, so "daily" and
-# "hourly" are not offered -- a registry asking for one fails validation.
-CADENCE_HOURS = {"weekly": 168, "monthly": 720, "quarterly": 2160}
+# persists, not from how often the source republishes. That rule held for the
+# whole fleet until 2026-09-23, when it met a register that FALSIFIES it rather
+# than merely straining it.
+#
+# The Environment Agency's flood-warning API documents its own deletion: a
+# warning is set to severity 4, "Warning no longer in force", approximately 24
+# hours after it was raised, and then "the warning response is removed
+# altogether". The state does not persist for a week. It persists for about a
+# day, and the archive holds 57 mementos of that endpoint across ten years --
+# one per 61 days against a 24-hour turnover. A weekly reading of that source
+# is not a coarse sample of the truth, it is a lottery: it would catch roughly
+# one flood event in seven and report success on the other six.
+#
+# So "hourly" is offered, and ONLY for sources that can show the same thing:
+# a documented or measured deletion window shorter than a week. It is not a
+# licence to poll anything else faster. "daily" is still not offered, because
+# nothing has yet needed a window between these two and an unused option is a
+# temptation. See the notes block of ea.flood.warnings for the worked case.
+CADENCE_HOURS = {"hourly": 1, "weekly": 168, "monthly": 720, "quarterly": 2160}
 STATUSES = ("active", "paused", "auto_disabled", "retired")
 PUBLISHER_TIERS = ("first_party", "primary", "redistribution")
 PERSONAL_DATA = ("none", "parties_only", "present")
