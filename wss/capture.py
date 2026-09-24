@@ -20,6 +20,8 @@ import os
 import time
 import urllib.parse
 import urllib.robotparser
+
+from . import robots
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -267,7 +269,25 @@ class Fetcher:
         return True
 
     def robots_allows(self, url: str, delay: float) -> tuple[bool, str]:
-        """(allowed, warning). Unreachable robots.txt allows with a warning."""
+        """(allowed, warning). Unreachable robots.txt allows with a warning.
+
+        LONGEST MATCH WINS, via wss.robots -- NOT urllib.robotparser, which
+        returns the FIRST matching rule. That is wrong in both directions and
+        both have bitten:
+
+            User-agent: *          User-agent: *
+            Allow: /               Disallow: /
+            Disallow: /c/portal/   Allow: /sitemap.xml
+
+        On the left, first-match PERMITS /c/portal/anything because `Allow: /`
+        is listed first; every real crawler refuses it. op.europa.eu ships that
+        file, so a first-match reading turns an explicit refusal into a
+        permission. On the right -- app.snowflake.com, measured 2026-09-24 --
+        first-match REFUSES /sitemap.xml even though the publisher wrote an
+        explicit Allow for it, and stdlib refused every one of that file's nine
+        Allow lines including `/`. RFC 9309 and Google both specify most
+        specific wins, with Allow beating Disallow on a tie.
+        """
         parts = urllib.parse.urlsplit(url)
         host = parts.netloc
         if host not in self._robots:
@@ -277,19 +297,20 @@ class Fetcher:
                 resp = self.session.get(robots_url, timeout=10)
                 self._mark(host)
                 if resp.status_code == 200:
-                    rp = urllib.robotparser.RobotFileParser()
-                    rp.parse(resp.text.splitlines())
-                    self._robots[host] = (rp, "")
+                    # The TEXT, not a parser object -- evaluation is longest-match
+                    # via wss.robots, not urllib.robotparser. See the note on
+                    # robots_allows below.
+                    self._robots[host] = (resp.text, "")
                 elif 400 <= resp.status_code < 500:
                     self._robots[host] = (None, "")  # no robots.txt → allowed
                 else:
                     self._robots[host] = (None, "robots_fetch_failed")
             except requests.RequestException:
                 self._robots[host] = (None, "robots_fetch_failed")
-        rp, warning = self._robots[host]
-        if rp is None:
+        txt, warning = self._robots[host]
+        if txt is None:
             return True, warning
-        return rp.can_fetch(ROBOTS_AGENT, url), warning
+        return robots.can_fetch(txt, ROBOTS_AGENT, url), warning
 
     def fetch(
         self,
