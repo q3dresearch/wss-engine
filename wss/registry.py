@@ -53,6 +53,24 @@ RESTATE_MODES = ("every_capture", "on_change")
 # preserve ~1.5 MB of movement. Canonical form is used ONLY for the comparison;
 # the bytes written and the content_sha256 recorded stay verbatim.
 DEDUPE_CANON = ("json",)
+
+# PROJECTION: drop named JSON keys from the STORED bytes, anywhere they appear.
+#
+# This bends the engine's strongest invariant -- that the archive holds exactly
+# what the publisher sent -- so it is opt-in, off by default, and `content_sha256`
+# still records the hash of the UNTOUCHED response. A row whose stored bytes do
+# not hash to content_sha256 is a projected row, and the `warnings` column names
+# every key that was removed, so nothing about the edit is implicit.
+#
+# Use it only for fields that carry no information you would ever query AND are
+# large. The case it was built for: Apify's store serves `pictureUrl` and
+# `userPictureUrl` (CDN avatar and icon links, 27.9% of the payload) and `url`,
+# which is exactly lowercase("apify.com/" + username + "/" + name) on 123,639 of
+# 123,639 records checked. Dropping the three halved the capture, 67.1 -> 35.0 MB,
+# with nothing lost that cannot be reconstructed from what remains.
+#
+# It is NOT a way to drop fields that are merely inconvenient. A field you might
+# one day want is a field to keep: capture is the irreversible step.
 # What may be COMMITTED from derived/. `all` is the default and the right
 # answer almost always. `aggregates` exists because some publishers licence
 # their data for publication only in non-downloadable form -- UNEP-WCMC's WDPA
@@ -99,6 +117,7 @@ REQUIRED_KEYS = (
     "gates",
 )
 OPTIONAL_KEYS = ("notes", "tags", "auth", "dedupe_ignore", "dedupe_canon",
+                 "project_drop",
                  "restate", "raw_codec", "publish", "aggregate_prefixes")
 
 AUTH_KEYS = ("bearer_env", "scheme", "headers")
@@ -222,6 +241,9 @@ class Source:
     # Canonical form applied before dedupe_ignore when comparing two bodies.
     # See DEDUPE_CANON. Affects the comparison only, never what is stored.
     dedupe_canon: str = ""
+    # JSON key names stripped from the STORED bytes, anywhere they appear.
+    # content_sha256 still records the untouched response -- see the note above.
+    project_drop: tuple[str, ...] = ()
     # A lossless re-encoding applied to raw before it is stored. It must
     # round-trip byte-exactly and capture proves that on every fetch, so `raw`
     # still means what the publisher sent. See wss/codecs.py.
@@ -536,6 +558,13 @@ def validate_entry(data: object, path: Path) -> tuple[Source | None, list[str]]:
             f"named parties are and why the derived tables do not carry them"
         )
 
+    drop = data.get("project_drop")
+    if drop is not None:
+        if not isinstance(drop, list) or not all(isinstance(k, str) and k.strip() for k in drop):
+            problems.append(f"{where}: project_drop must be a list of non-empty JSON key names")
+        elif len(set(drop)) != len(drop):
+            problems.append(f"{where}: project_drop contains duplicate key names")
+
     ignore = data.get("dedupe_ignore")
     if ignore is not None:
         if not isinstance(ignore, list) or not all(isinstance(x, str) for x in ignore):
@@ -575,6 +604,7 @@ def validate_entry(data: object, path: Path) -> tuple[Source | None, list[str]]:
             notes=str(data.get("notes") or "").strip(),
             dedupe_ignore=tuple(data.get("dedupe_ignore") or ()),
             dedupe_canon=str(data.get("dedupe_canon") or ""),
+            project_drop=tuple(data.get("project_drop") or ()),
             path=path,
         ),
         [],

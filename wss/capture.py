@@ -549,11 +549,19 @@ def capture_source(
             "warnings": ";".join(warnings),
         }
 
+        # Gates run on the ORIGINAL body, above. Projection happens only after a
+        # response has been accepted, and quarantine keeps the untouched bytes so
+        # triage always sees exactly what the publisher sent.
+        store_body = _project(res.body, source.project_drop)
+        if store_body is not res.body:
+            warnings.append("projected:" + ",".join(source.project_drop))
+            row["warnings"] = ";".join(warnings)
+
         if not gate.ok:
             ref = storage.quarantine_path(source.source_id, fetched_dt, sha, ext)
             local.write(ref, res.body)
             row |= {"outcome": "quarantined", "raw_ref": ref, "reason": gate.reason}
-        elif prev is not None and _same_content(source, store, prev, res.body, sha):
+        elif prev is not None and _same_content(source, store, prev, store_body, sha):
             row |= {"outcome": "unchanged", "raw_ref": prev["raw_ref"]}
         else:
             ref = storage.raw_path(source.source_id, fetched_dt, sha, ext)
@@ -567,7 +575,7 @@ def capture_source(
             # be re-fetched, a suboptimal encoding can be migrated later.
             if source.raw_codec:
                 try:
-                    if storage._unpack(ref, storage._pack(ref, res.body)) != res.body:
+                    if storage._unpack(ref, storage._pack(ref, store_body)) != store_body:
                         raise ValueError("round trip did not reproduce the bytes")
                 except Exception as exc:
                     warnings.append(f"raw_codec:{source.raw_codec} fell back ({exc})")
@@ -575,7 +583,7 @@ def capture_source(
                     ref = storage.raw_path(source.source_id, fetched_dt, sha, ext)
                     row["warnings"] = ";".join(warnings)
             if not store.exists(ref):
-                store.write(ref, res.body)
+                store.write(ref, store_body)
             row |= {"outcome": "changed" if prev is not None else "first_capture", "raw_ref": ref}
 
         manifest.append_row(root, row)
@@ -834,6 +842,33 @@ def _dedupe_key(body: bytes, patterns: tuple[str, ...], canon: str = "") -> str:
     for pat in patterns:
         text = re.sub(pat, "", text)
     return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
+
+
+def _project(body: bytes, drop: tuple[str, ...]) -> bytes:
+    """Strip named keys from a JSON body, anywhere they appear.
+
+    Returns the body UNCHANGED if it is not JSON, rather than guessing -- a
+    projection that silently no-ops on a broken payload is better than one that
+    mangles it. The caller records what was dropped in `warnings`, and
+    `content_sha256` keeps the hash of the untouched response, so a projected
+    row is always identifiable and always says what it lost.
+    """
+    if not drop:
+        return body
+    try:
+        doc = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return body
+    keys = set(drop)
+
+    def strip(o):
+        if isinstance(o, dict):
+            return {k: strip(v) for k, v in o.items() if k not in keys}
+        if isinstance(o, list):
+            return [strip(v) for v in o]
+        return o
+
+    return json.dumps(strip(doc), separators=(",", ":")).encode("utf-8")
 
 
 def _same_content(source, store, prev, body: bytes, sha: str) -> bool:
