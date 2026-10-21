@@ -31,10 +31,18 @@ import yaml
 #
 # So "hourly" is offered, and ONLY for sources that can show the same thing:
 # a documented or measured deletion window shorter than a week. It is not a
-# licence to poll anything else faster. "daily" is still not offered, because
-# nothing has yet needed a window between these two and an unused option is a
-# temptation. See the notes block of ea.flood.warnings for the worked case.
-CADENCE_HOURS = {"hourly": 1, "weekly": 168, "monthly": 720, "quarterly": 2160}
+# licence to poll anything else faster. See the notes block of ea.flood.warnings
+# for the worked case.
+#
+# "daily" was withheld until something needed a window between those two. Nebius
+# spot prices did: the API serves 15-minute steps for only the last 7 days, and a
+# capture reads back 6.7 of them, so weekly leaves ~2h a week uncovered when on
+# time and loses the whole week of 15-minute data when a single run is skipped or
+# late. That series is not redundant -- it holds 35% of the price changes that the
+# hourly series (30 days, which weekly overlaps four times) cannot show. Daily
+# overlaps the short window six times. Same licence as hourly: a documented window
+# shorter than the cadence above it, and not a reason to poll anything else daily.
+CADENCE_HOURS = {"hourly": 1, "daily": 24, "weekly": 168, "monthly": 720, "quarterly": 2160}
 STATUSES = ("active", "paused", "auto_disabled", "retired")
 PUBLISHER_TIERS = ("first_party", "primary", "redistribution")
 PERSONAL_DATA = ("none", "parties_only", "present")

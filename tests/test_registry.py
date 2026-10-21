@@ -126,6 +126,16 @@ def test_plan_only_lists_occupied_shards(tmp_path):
     assert registry.plan(sources, "monthly", 20) == []
 
 
+def test_daily_is_a_cadence_and_plans_only_daily_sources(tmp_path):
+    """Added in 0.6.60 for a documented 7-day window (Nebius 15-minute steps)."""
+    write_source_yaml(tmp_path, "fixture.demo.alpha", "https://example.com/api", cadence="daily")
+    sources = registry.load_registry(tmp_path)
+    assert sources[0].cadence == "daily"
+    assert registry.CADENCE_HOURS["daily"] == 24
+    assert registry.plan(sources, "daily", 20) != []
+    assert registry.plan(sources, "weekly", 20) == []
+
+
 def test_plan_refuses_to_succeed_at_planning_nothing(tmp_path, capsys, monkeypatch):
     """The failure that hid: an empty matrix skips capture, the commit job still
     writes a heartbeat, and the run is green."""
