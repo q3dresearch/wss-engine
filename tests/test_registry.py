@@ -215,6 +215,58 @@ def test_month_end_steps_whole_months():
         "https://x/Q-09302026.xlsx", "https://x/Q-08312026.xlsx", "https://x/Q-07312026.xlsx"]
 
 
+def test_day_offset_reaches_back_a_documented_window():
+    """Nebius documents 'up to 30 days' of spot-price history and 400s on a
+    filters.startTime older than that. lookback cannot express 'twenty-nine days
+    ago': it is a fallback, and here every candidate succeeds, so a plain {day:}
+    token would always pick today and return one day of history."""
+    import datetime
+    e = registry.Endpoint(
+        url="https://x/s?filters.startTime={day-29:%Y-%m-%dT00:00:00Z}", lookback=1)
+    assert e.resolve(datetime.date(2026, 10, 21)) == [
+        "https://x/s?filters.startTime=2026-09-22T00:00:00Z",
+        "https://x/s?filters.startTime=2026-09-21T00:00:00Z"]  # lookback steps from the offset
+
+
+def test_day_offset_keeps_the_template_as_identity():
+    """The offset is part of the endpoint's identity, so the manifest stays one
+    continuous series instead of starting a new history every day."""
+    e = registry.Endpoint(url="https://x/s?t={day-6:%Y-%m-%d}", lookback=1)
+    assert e.identity() == "https://x/s?t={day-6:%Y-%m-%d}"
+
+
+def test_offset_counts_in_the_tokens_own_period():
+    import datetime
+    d = datetime.date(2026, 9, 9)              # a Wednesday
+    # Monday of 2026-09-09's week is 09-07; one WEEK back is 08-31.
+    assert registry.Endpoint(url="https://x/{monday-1:%Y%m%d}", lookback=1).resolve(d)[0] == "https://x/20260831"
+    # September's month-end is 09-30; one MONTH back is 08-31.
+    assert registry.Endpoint(url="https://x/{month_end-1:%m%d%Y}", lookback=1).resolve(d)[0] == "https://x/08312026"
+
+
+def test_a_token_without_an_offset_is_unchanged():
+    """Every existing registry uses the old form; it must resolve exactly as before."""
+    import datetime
+    e = registry.Endpoint(url="https://x/f_{day:%Y%m%d}.json", lookback=2)
+    assert e.resolve(datetime.date(2026, 9, 9)) == [
+        "https://x/f_20260909.json", "https://x/f_20260908.json", "https://x/f_20260907.json"]
+
+
+@pytest.mark.parametrize(("url", "expected"), [
+    ("https://x/f_{day-0:%Y}.json", "offset must be 1-366"),   # a zero offset is a typo for {day:}
+    ("https://x/f_{day-366:%Y}.json", None),
+    ("https://x/f_{day-999:%Y}.json", "offset must be 1-366"),
+    ("https://x/f_{day-5:nodirective}.json", "no strftime directive"),
+])
+def test_offset_validation(url, expected):
+    problems: list[str] = []
+    registry._validate_url_template(url, 1, problems, "fixture.yml[0]")
+    if expected is None:
+        assert not problems
+    else:
+        assert any(expected in p for p in problems)
+
+
 def test_dedupe_canon_must_name_a_known_form(tmp_path):
     """A typo silently disables dedupe, so an unknown form fails validation."""
     path = write_source_yaml(tmp_path, "fixture.demo.alpha", "https://example.com/api")

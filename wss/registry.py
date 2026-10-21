@@ -100,7 +100,18 @@ ENDPOINT_KEYS = ("url", "delay_seconds", "timeout_seconds", "method", "body",
 # The token is expanded at FETCH time; the template stays the endpoint's
 # identity, so the manifest keeps one continuous history instead of starting a
 # new one every period.
-URL_TOKEN = re.compile(r"\{(day|monday|month_end):([^}]+)\}")
+#
+# AN OPTIONAL OFFSET REACHES BACK FROM THE ANCHOR: `{day-29:%Y-%m-%d}` is the date
+# twenty-nine days before today. `lookback` is a FALLBACK ("try today, then
+# yesterday, first success wins") and cannot express this, because here every
+# candidate succeeds and it would always pick today. The case is a publisher that
+# documents a rolling window and demands a start INSIDE it: Nebius's spot-price
+# history is "up to 30 days" and rejects `filters.startTime` older than that, so a
+# literal date works for a month and then 400s forever, and a token with no offset
+# returns one day of history. The offset counts in the token's own period: days for
+# `day`, weeks for `monday`, months for `month_end`.
+URL_TOKEN = re.compile(r"\{(day|monday|month_end)(?:-(\d{1,3}))?:([^}]+)\}")
+URL_MAX_OFFSET = 366
 URL_ANCHORS = ("day", "monday", "month_end")
 REQUIRED_KEYS = (
     "source_id",
@@ -174,16 +185,18 @@ class Endpoint:
         if not m:
             return [self.url]
         from datetime import date, timedelta
-        anchor, fmt = m.group(1), m.group(2)
+        anchor, fmt = m.group(1), m.group(3)
+        offset = int(m.group(2) or 0)
         today = now or date.today()
         out = []
         for step in range(self.lookback + 1):
+            n = offset + step  # the offset moves the whole sequence; lookback steps from it
             if anchor == "day":
-                d = today - timedelta(days=step)
+                d = today - timedelta(days=n)
             elif anchor == "monday":
-                d = today - timedelta(days=today.weekday()) - timedelta(weeks=step)
+                d = today - timedelta(days=today.weekday()) - timedelta(weeks=n)
             else:  # month_end -- the last day of the month, stepping back months
-                y, mo = today.year, today.month - step
+                y, mo = today.year, today.month - n
                 while mo < 1:
                     mo += 12
                     y -= 1
@@ -384,9 +397,11 @@ def _validate_url_template(url: str, lookback: object, problems: list[str], wher
     if not tokens and lookback:
         problems.append(f"{where}: lookback is set but the url has no date token to step")
     if tokens:
-        anchor, fmt = tokens[0]
+        anchor, offset, fmt = tokens[0]
         if "%" not in fmt:
             problems.append(f"{where}: date token format {fmt!r} has no strftime directive")
+        if offset and not 1 <= int(offset) <= URL_MAX_OFFSET:
+            problems.append(f"{where}: date token offset must be 1-{URL_MAX_OFFSET}, got {offset}")
 
 
 def _validate_endpoints(endpoints: object, problems: list[str], where: str) -> list[Endpoint]:
