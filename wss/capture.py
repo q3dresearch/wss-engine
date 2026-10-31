@@ -14,6 +14,7 @@ The contract:
 from __future__ import annotations
 
 import hashlib
+import hmac
 import re
 import json
 import os
@@ -177,6 +178,116 @@ def _extra_auth_headers(source: Source) -> dict[str, str]:
     return out
 
 
+def sigv4_credentials(source: Source) -> dict[str, str] | None:
+    """Resolve an AWS SigV4 block (`auth: {sigv4: ...}`) from the environment.
+
+    Unlike bearer or static-header auth, a SigV4 Authorization header cannot be
+    precomputed once per source: it signs the resolved URL (including any
+    expanded `{day-N:...}` query token), the host, the payload hash, and the
+    per-attempt timestamp (`X-Amz-Date`). So this resolves and validates the
+    credentials up front (failing with `CredentialMissing` at the same gate as
+    every other auth type) and `sign_sigv4` signs each attempt inside
+    `Fetcher.fetch`.
+    """
+    cfg = (source.auth or {}).get("sigv4")
+    if not cfg:
+        return None
+    ak_env = cfg["access_key_env"]
+    sk_env = cfg["secret_key_env"]
+    access_key = os.environ.get(ak_env, "").strip()
+    if not access_key:
+        raise CredentialMissing(
+            f"{source.source_id} needs ${ak_env}, which is not set. "
+            f"Put it in {ENV_FILE} for local runs (never commit it), or set it "
+            f"as a repository secret for CI."
+        )
+    secret_key = os.environ.get(sk_env, "").strip()
+    if not secret_key:
+        raise CredentialMissing(
+            f"{source.source_id} needs ${sk_env}, which is not set. "
+            f"Put it in {ENV_FILE} for local runs (never commit it), or set it "
+            f"as a repository secret for CI."
+        )
+    return {
+        "service": cfg["service"],
+        "region": cfg.get("region") or "",
+        "access_key": access_key,
+        "secret_key": secret_key,
+    }
+
+
+def sign_sigv4(
+    cfg: dict[str, str],
+    method: str,
+    url: str,
+    payload: bytes | None = None,
+    now: datetime | None = None,
+) -> dict[str, str]:
+    """Compute AWS Signature Version 4 (`AWS4-HMAC-SHA256`) request headers.
+
+    Pure stdlib (`hmac` + `hashlib`), so non-object-storage repos do not pay
+    for `boto3`. If `cfg['region']` is empty, the region is read from a standard
+    `<service>.<region>.amazonaws.com` hostname (or defaults to `us-east-1`), so
+    one source with 17 regional EC2 endpoints needs only a single `auth.sigv4`
+    block.
+    """
+    parts = urllib.parse.urlsplit(url)
+    host = parts.netloc
+    region = cfg.get("region") or ""
+    if not region:
+        segs = host.split(".")
+        if len(segs) >= 4 and segs[-2:] == ["amazonaws", "com"]:
+            region = segs[1]
+        else:
+            region = "us-east-1"
+    service = cfg["service"]
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+    datestamp = now.strftime("%Y%m%d")
+
+    canonical_uri = urllib.parse.quote(parts.path or "/", safe="/-_.~")
+    q_pairs = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+    enc_pairs = sorted(
+        (urllib.parse.quote(k, safe="-_.~"), urllib.parse.quote(v, safe="-_.~"))
+        for k, v in q_pairs
+    )
+    canonical_query = "&".join(f"{k}={v}" for k, v in enc_pairs)
+    payload_hash = hashlib.sha256(payload or b"").hexdigest()
+    canonical_headers = f"host:{host}\nx-amz-date:{amz_date}\n"
+    signed_headers = "host;x-amz-date"
+    canonical_request = "\n".join([
+        method.upper(),
+        canonical_uri,
+        canonical_query,
+        canonical_headers,
+        signed_headers,
+        payload_hash,
+    ])
+    scope = f"{datestamp}/{region}/{service}/aws4_request"
+    string_to_sign = "\n".join([
+        "AWS4-HMAC-SHA256",
+        amz_date,
+        scope,
+        hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+    ])
+
+    def _sign(key: bytes, msg: str) -> bytes:
+        return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
+
+    k_date = _sign(("AWS4" + cfg["secret_key"]).encode("utf-8"), datestamp)
+    k_region = _sign(k_date, region)
+    k_service = _sign(k_region, service)
+    k_signing = _sign(k_service, "aws4_request")
+    signature = hmac.new(k_signing, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+    return {
+        "X-Amz-Date": amz_date,
+        "Authorization": (
+            f"AWS4-HMAC-SHA256 Credential={cfg['access_key']}/{scope}, "
+            f"SignedHeaders={signed_headers}, Signature={signature}"
+        ),
+    }
+
+
 class FetchError(RuntimeError):
     def __init__(self, reason: str):
         self.reason = reason
@@ -319,6 +430,7 @@ class Fetcher:
         last_modified: str = "",
         extra_headers: dict[str, str] | None = None,
         url: str | None = None,
+        sigv4: dict[str, str] | None = None,
     ) -> FetchResult:
         # `url` overrides the endpoint's own when it carries a date token. The
         # endpoint keeps the template as its identity so the manifest stays one
@@ -353,9 +465,12 @@ class Fetcher:
                 last_reason += "_budget_exhausted"
                 break
             self._polite_wait(host, endpoint.delay_seconds)
+            req_headers = dict(headers)
+            if sigv4 is not None:
+                req_headers.update(sign_sigv4(sigv4, endpoint.method, url, payload))
             try:
                 resp = self.session.request(
-                    endpoint.method, url, headers=headers,
+                    endpoint.method, url, headers=req_headers,
                     data=payload, timeout=endpoint.timeout_seconds,
                 )
             except requests.RequestException as exc:
@@ -442,6 +557,7 @@ def capture_source(
 
     try:
         credentials = auth_headers(source)
+        sigv4 = sigv4_credentials(source)
     except CredentialMissing as exc:
         # Localised failure: one missing key must not silence the whole fleet,
         # but it still turns the run red via the error outcome.
@@ -485,7 +601,7 @@ def capture_source(
             # continuous history rather than a new series per upload.
             try:
                 disco = fetcher.fetch(endpoint, extra_headers=credentials,
-                                      url=endpoint.url)
+                                      url=endpoint.url, sigv4=sigv4)
                 if disco.status != 200:
                     raise FetchError(f"url_from_discovery_status_{disco.status}")
                 candidates = [follow_url_from(disco.body, endpoint.url_from, endpoint.url)]
@@ -513,6 +629,7 @@ def capture_source(
                         last_modified=prev_lm,
                         extra_headers=credentials,
                         url=candidate,
+                        sigv4=sigv4,
                     )
                 except FetchError:
                     if i == len(candidates) - 1:
@@ -734,6 +851,7 @@ def doctor(root: Path | str, source_id: str, log: Callable[[str], None] = print)
     fetcher = Fetcher(contact)
     try:
         credentials = auth_headers(source)
+        sigv4 = sigv4_credentials(source)
     except CredentialMissing as exc:
         log(str(exc))
         return 1
@@ -750,6 +868,12 @@ def doctor(root: Path | str, source_id: str, log: Callable[[str], None] = print)
             named = (source.auth.get("headers") or {})
             for header, env_name in sorted(named.items()):
                 log(f"auth      : {header}: <${env_name}>  (value never printed)")
+    if sigv4:
+        cfg = source.auth["sigv4"]
+        log(
+            f"auth      : AWS4-HMAC-SHA256 (<${cfg['access_key_env']}>, "
+            f"<${cfg['secret_key_env']}>, service={cfg['service']})  (value never printed)"
+        )
     log(f"source_id : {source.source_id}")
     log(f"status    : {source.status}   cadence: {source.cadence}   storage: {source.storage}")
     log(f"schema_id : {source.schema_id}   publisher: {source.publisher} ({source.publisher_tier})")
@@ -765,7 +889,7 @@ def doctor(root: Path | str, source_id: str, log: Callable[[str], None] = print)
         if len(candidates) > 1:
             log(f"{endpoint.method} {endpoint.url}")
             for c in candidates:
-                probe = fetcher.fetch(endpoint, url=c)
+                probe = fetcher.fetch(endpoint, extra_headers=credentials, url=c, sigv4=sigv4)
                 log(f"  resolve  : {c.rsplit('/', 1)[-1]} -> {probe.status}")
                 if probe.status != 404:
                     target = c
@@ -781,7 +905,7 @@ def doctor(root: Path | str, source_id: str, log: Callable[[str], None] = print)
             ok_all = False
             continue
         try:
-            res = fetcher.fetch(endpoint, extra_headers=credentials, url=target)
+            res = fetcher.fetch(endpoint, extra_headers=credentials, url=target, sigv4=sigv4)
         except FetchError as exc:
             log(f"  fetch    : FAILED — {exc.reason}")
             ok_all = False

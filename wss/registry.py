@@ -139,7 +139,9 @@ OPTIONAL_KEYS = ("notes", "tags", "auth", "dedupe_ignore", "dedupe_canon",
                  "project_drop",
                  "restate", "raw_codec", "publish", "aggregate_prefixes")
 
-AUTH_KEYS = ("bearer_env", "scheme", "headers")
+AUTH_KEYS = ("bearer_env", "scheme", "headers", "sigv4")
+SIGV4_KEYS = ("service", "region", "access_key_env", "secret_key_env")
+SERVICE_NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 # Credentials belong in a header, never in a URL: the manifest records every
 # URL verbatim and forever, so a key in a query string is a permanent leak.
@@ -356,6 +358,41 @@ def _validate_auth(auth: object, problems: list[str], where: str) -> None:
                         f"{where}: auth.headers[{hname!r}] must be an environment variable NAME "
                         f"(upper snake case), not a credential"
                     )
+    sigv4 = auth.get("sigv4")
+    if sigv4 is not None:
+        _validate_sigv4(sigv4, problems, where)
+
+
+def _validate_sigv4(sigv4: object, problems: list[str], where: str) -> None:
+    """`auth: {sigv4: {service: ec2, access_key_env: ..., secret_key_env: ...}}`."""
+    if not isinstance(sigv4, dict) or not sigv4:
+        problems.append(
+            f"{where}: auth.sigv4 must be a mapping, e.g. "
+            f"sigv4: {{service: ec2, access_key_env: AWS_ACCESS_KEY_ID, secret_key_env: AWS_SECRET_ACCESS_KEY}}"
+        )
+        return
+    for key in sigv4:
+        if key not in SIGV4_KEYS:
+            problems.append(
+                f"{where}: unknown auth.sigv4 key {key!r} (allowed: {', '.join(SIGV4_KEYS)})"
+            )
+    svc = sigv4.get("service")
+    if not isinstance(svc, str) or not SERVICE_NAME_RE.match(svc):
+        problems.append(
+            f"{where}: auth.sigv4.service must be a lowercase service identifier, e.g. ec2"
+        )
+    region = sigv4.get("region")
+    if region is not None and (not isinstance(region, str) or not SERVICE_NAME_RE.match(region)):
+        problems.append(
+            f"{where}: auth.sigv4.region must be a lowercase region identifier, e.g. us-east-1"
+        )
+    for env_key in ("access_key_env", "secret_key_env"):
+        val = sigv4.get(env_key)
+        if not isinstance(val, str) or not ENV_NAME_RE.match(val):
+            problems.append(
+                f"{where}: auth.sigv4.{env_key} must be an environment variable NAME "
+                f"(upper snake case), not a credential"
+            )
 
 
 def _validate_scheme(auth: dict, problems: list[str], where: str) -> None:

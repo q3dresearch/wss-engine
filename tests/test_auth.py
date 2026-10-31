@@ -293,3 +293,90 @@ def test_doctor_survives_header_auth(tmp_path, monkeypatch, capsys):
     assert "Authorization-User: <$DEMO_USER>" in out
     assert "Authorization-Key: <$DEMO_KEY>" in out
     assert "secret-value" not in out          # the value must never be printed
+
+
+@pytest.mark.usefixtures("contact_env")
+def test_sigv4_signs_request_and_never_leaks_secret(tmp_path, monkeypatch):
+    monkeypatch.setenv("DEMO_AWS_AK", "AKIAIOSFODNN7EXAMPLE")
+    monkeypatch.setenv("DEMO_AWS_SK", SECRET)
+    with FixtureServer() as server:
+        server.allow_all_robots()
+        server.set("/?Action=DescribeSpotPriceHistory", BODY)
+        path = write_source_yaml(tmp_path, "demo.aws.spot", f"{server.url}/?Action=DescribeSpotPriceHistory")
+        path.write_text(path.read_text() + textwrap.dedent(
+            """\
+            auth:
+              sigv4:
+                service: ec2
+                region: us-west-2
+                access_key_env: DEMO_AWS_AK
+                secret_key_env: DEMO_AWS_SK
+            """))
+        assert cli.main(["--root", str(tmp_path), "capture", "--cadence", "weekly"]) == 0
+        hdrs = [h for p, h in server.requests if "DescribeSpotPriceHistory" in p][-1]
+    assert hdrs.get("X-Amz-Date", "").endswith("Z")
+    auth_hdr = hdrs.get("Authorization", "")
+    assert auth_hdr.startswith("AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/")
+    assert "/us-west-2/ec2/aws4_request" in auth_hdr
+    assert SECRET not in auth_hdr
+    for written in (p for p in tmp_path.rglob("*") if p.is_file()):
+        text = written.read_text(encoding="utf-8", errors="replace")
+        assert SECRET not in text
+        assert "AKIAIOSFODNN7EXAMPLE" not in text
+
+
+def test_sigv4_infers_region_from_amazonaws_hostname():
+    from datetime import datetime, timezone
+    cfg = {
+        "service": "ec2",
+        "region": "",
+        "access_key": "AKIAIOSFODNN7EXAMPLE",
+        "secret_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    }
+    hdrs = capture.sign_sigv4(
+        cfg, "GET",
+        "https://ec2.eu-north-1.amazonaws.com/?Action=DescribeSpotPriceHistory&Version=2016-11-15",
+        now=datetime(2026, 11, 1, 12, 0, 0, tzinfo=timezone.utc),
+    )
+    assert hdrs["X-Amz-Date"] == "20261101T120000Z"
+    assert "20261101/eu-north-1/ec2/aws4_request" in hdrs["Authorization"]
+
+
+@pytest.mark.usefixtures("contact_env")
+def test_doctor_survives_sigv4_and_hides_secrets(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("DEMO_AWS_AK", "AKIAIOSFODNN7EXAMPLE")
+    monkeypatch.setenv("DEMO_AWS_SK", SECRET)
+    with FixtureServer() as server:
+        server.allow_all_robots()
+        server.set("/api", BODY)
+        path = write_source_yaml(tmp_path, "demo.aws.spot", f"{server.url}/api")
+        path.write_text(path.read_text() + textwrap.dedent(
+            """\
+            auth:
+              sigv4:
+                service: ec2
+                access_key_env: DEMO_AWS_AK
+                secret_key_env: DEMO_AWS_SK
+            """))
+        assert cli.main(["--root", str(tmp_path), "doctor", "demo.aws.spot"]) == 0
+    out = capsys.readouterr().out
+    assert "AWS4-HMAC-SHA256 (<$DEMO_AWS_AK>, <$DEMO_AWS_SK>, service=ec2)" in out
+    assert SECRET not in out
+    assert "AKIAIOSFODNN7EXAMPLE" not in out
+
+
+def test_sigv4_registry_validation_rejects_bad_configs(tmp_path):
+    path = write_source_yaml(tmp_path, "demo.aws.bad", "https://ec2.us-east-1.amazonaws.com/")
+    path.write_text(path.read_text() + textwrap.dedent(
+        f"""\
+        auth:
+          sigv4:
+            service: EC2_BAD
+            access_key_env: akia-literal
+            secret_key_env: {SECRET}
+        """))
+    problems = registry.validate_registry(tmp_path)
+    assert any("auth.sigv4.service" in p for p in problems)
+    assert any("auth.sigv4.access_key_env" in p for p in problems)
+    assert any("auth.sigv4.secret_key_env" in p for p in problems)
+
